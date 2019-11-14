@@ -3,20 +3,19 @@ This file is for models creation, which consults options
 and creates each encoder and decoder accordingly.
 """
 import re
+
 import torch
 import torch.nn as nn
 from torch.nn.init import xavier_uniform_
 
 import onmt.inputters as inputters
 import onmt.modules
-from onmt.encoders import str2enc
-
 from onmt.decoders import str2dec
-
+from onmt.encoders import str2enc
 from onmt.modules import Embeddings, VecEmbedding, CopyGenerator
 from onmt.modules.util_class import Cast
-from onmt.utils.misc import use_gpu
 from onmt.utils.logging import logger
+from onmt.utils.misc import use_gpu
 from onmt.utils.parse import ArgumentParser
 
 
@@ -65,7 +64,7 @@ def build_embeddings(opt, text_field, for_encoder=True):
 
 
 # TODO(yida) build encoder
-def build_encoder(opt, embeddings, pos_embeddings):
+def build_encoder(opt, embeddings, pos_embeddings=None):
     """
     Various encoder dispatcher function.
     Args:
@@ -78,7 +77,7 @@ def build_encoder(opt, embeddings, pos_embeddings):
 
 
 # TODO(yida) build deocder
-def build_decoder(opt, embeddings, pos_dembeddings):
+def build_decoder(opt, embeddings, pos_dembeddings=None):
     """
     Various decoder dispatcher function.
     Args:

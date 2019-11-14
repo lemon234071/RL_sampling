@@ -3,9 +3,8 @@ import torch.nn as nn
 
 from onmt.models.stacked_rnn import StackedLSTM, StackedGRU
 from onmt.modules import context_gate_factory, GlobalAttention
-from onmt.utils.rnn_factory import rnn_factory
-
 from onmt.utils.misc import aeq
+from onmt.utils.rnn_factory import rnn_factory
 
 
 class DecoderBase(nn.Module):
@@ -143,7 +142,7 @@ class RNNDecoderBase(DecoderBase):
 
     # TODO(yida) decoder class
     @classmethod
-    def from_opt(cls, opt, embeddings, pos_embeddings):
+    def from_opt(cls, opt, embeddings, pos_embeddings=None):
         """Alternate constructor."""
         return cls(
             opt.rnn_type,
@@ -457,7 +456,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
 
     def update_dropout(self, dropout):
         self.dropout.p = dropout
-        self.rnn.dropout.p = dropoutssshi
+        self.rnn.dropout.p = dropout
         self.embeddings.update_dropout(dropout)
         # TODO(yida) decoder
         if self.pos_embeddings is not None:

@@ -1,3 +1,3 @@
 # onmt_nlp
-onmt_baseline
-Most of our code based on this repo.
+Onmt_baseline
+Most of our code based on this code.

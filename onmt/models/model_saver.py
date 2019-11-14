@@ -1,10 +1,10 @@
 import os
+from collections import deque
+from copy import deepcopy
+
 import torch
 
-from collections import deque
 from onmt.utils.logging import logger
-
-from copy import deepcopy
 
 
 def build_model_saver(model_opt, opt, model, fields, optim):
@@ -107,8 +107,9 @@ class ModelSaver(ModelSaverBase):
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
 
+        # TODO(yida) build model
         vocab = deepcopy(self.fields)
-        for side in ["src", "tgt"]:
+        for side in ["src", "tgt", "pos_src", "pos_tgt"]:
             keys_to_pop = []
             if hasattr(vocab[side], "fields"):
                 unk_token = vocab[side].fields[0][1].vocab.itos[0]

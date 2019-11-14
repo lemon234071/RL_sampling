@@ -110,3 +110,8 @@ ENV/
 
 # Tensorboard
 runs/
+
+# yida
+checkpoint/
+log_dir/
+result/

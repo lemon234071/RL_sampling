@@ -1,7 +1,6 @@
 """Define RNN-based encoders."""
 import torch.nn as nn
 import torch.nn.functional as F
-
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 
@@ -55,7 +54,7 @@ class RNNEncoder(EncoderBase):
 
     # TODO(yida) encoder class
     @classmethod
-    def from_opt(cls, opt, embeddings, pos_beddimgs):
+    def from_opt(cls, opt, embeddings, pos_beddimgs=None):
         """Alternate constructor."""
         return cls(
             opt.rnn_type,
