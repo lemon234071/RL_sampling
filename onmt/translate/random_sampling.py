@@ -86,7 +86,9 @@ class RandomSampling(DecodeStrategy):
     def __init__(self, pad, bos, eos, batch_size, device,
                  min_length, block_ngram_repeat, exclusion_tokens,
                  return_attention, max_length, sampling_temp, keep_topk,
-                 memory_length):
+                 memory_length,
+                 # yida translate
+                 pos_gen, vocab_pos):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -100,8 +102,19 @@ class RandomSampling(DecodeStrategy):
                                            dtype=torch.long, device=device)
         self.original_batch_idx = torch.arange(self.batch_size,
                                                dtype=torch.long, device=device)
+        # yida translate
+        self.pos_predictions = [[] for _ in range(batch_size)]
+        self.entropy = [[] for _ in range(batch_size)]
+        self.pos_entropy = [[] for _ in range(batch_size)]
+        self.pos_alive_seq = torch.full(
+            [batch_size * 1, 1], bos,
+            dtype=torch.long, device=device)
+        self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
+        self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
+        self.pos_gen = pos_gen
 
-    def advance(self, log_probs, attn):
+    # yida translate
+    def advance(self, log_probs, attn, pos_log_probs):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -116,6 +129,18 @@ class RandomSampling(DecodeStrategy):
 
         self.ensure_min_length(log_probs)
         self.block_ngram_repeats(log_probs)
+        # yida translate
+        self.ensure_min_length(pos_log_probs)
+        self.block_ngram_repeats(pos_log_probs)
+        # TODO
+        entropy = -torch.sum(torch.exp(log_probs) * log_probs, -1)
+        if self.pos_gen:
+            pos_entropy = -torch.sum(torch.exp(pos_log_probs) * log_probs, -1)
+            self.H_alive_seq = torch.cat([self.H_alive_seq, entropy.view(entropy.shape[0], 1)], -1)
+            self.pos_H_alive_seq = torch.cat([self.pos_H_alive_seq, pos_entropy.view(pos_entropy.shape[0], 1)], -1)
+            _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
+            self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
+
         topk_ids, self.topk_scores = sample_with_temperature(
             log_probs, self.sampling_temp, self.keep_topk)
 
@@ -137,6 +162,12 @@ class RandomSampling(DecodeStrategy):
             b_orig = self.original_batch_idx[b]
             self.scores[b_orig].append(self.topk_scores[b, 0])
             self.predictions[b_orig].append(self.alive_seq[b, 1:])
+            # yida translate
+            self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
+            if self.pos_gen:
+                self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
+                self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
+
             self.attention[b_orig].append(
                 self.alive_attn[:, b, :self.memory_length[b]]
                 if self.alive_attn is not None else [])
@@ -145,6 +176,12 @@ class RandomSampling(DecodeStrategy):
             return
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
+        # yida translate
+        self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
+        if self.pos_gen:
+            self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
+            self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
+
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]
         self.select_indices = is_alive.nonzero().view(-1)

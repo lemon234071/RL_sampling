@@ -1,22 +1,23 @@
 #!/usr/bin/env python
 """ Translator Class and builder """
 from __future__ import print_function
+
 import codecs
-import os
 import math
+import os
 import time
 from itertools import count
 
 import torch
 
+import onmt.decoders.ensemble
+import onmt.inputters as inputters
 import onmt.model_builder
 import onmt.translate.beam
-import onmt.inputters as inputters
-import onmt.decoders.ensemble
+from onmt.modules.copy_generator import collapse_copy_scores
 from onmt.translate.beam_search import BeamSearch
 from onmt.translate.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
-from onmt.modules.copy_generator import collapse_copy_scores
 
 
 def build_translator(opt, report_score=True, logger=None, out_file=None):
@@ -283,6 +284,8 @@ class Translator(object):
     def translate(
             self,
             src,
+            # yida translate
+            pos_src,
             tgt=None,
             src_dir=None,
             batch_size=None,
@@ -312,10 +315,11 @@ class Translator(object):
 
         data = inputters.Dataset(
             self.fields,
-            readers=([self.src_reader, self.tgt_reader]
-                     if tgt else [self.src_reader]),
-            data=[("src", src), ("tgt", tgt)] if tgt else [("src", src)],
-            dirs=[src_dir, None] if tgt else [src_dir],
+            # yida translate
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
+                     if tgt else [self.src_reader, self.tgt_reader]),
+            data=[("src", src), ("tgt", tgt), ("pos_src", pos_src)] if tgt else [("src", src), ("pos_src", pos_src)],
+            dirs=[src_dir, None, None] if tgt else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -343,12 +347,19 @@ class Translator(object):
 
         all_scores = []
         all_predictions = []
+        # yida translate
+        all_entropy = []
+        vocab_pos = None
+        all_pos_predictions = []
+        all_pos_entropy = []
 
         start_time = time.time()
 
         for batch in data_iter:
             batch_data = self.translate_batch(
-                batch, data.src_vocabs, attn_debug
+                batch, data.src_vocabs, attn_debug,
+                # yida translate
+                vocab_pos
             )
             translations = xlation_builder.from_batch(batch_data)
 
@@ -365,6 +376,13 @@ class Translator(object):
                 all_predictions += [n_best_preds]
                 self.out_file.write('\n'.join(n_best_preds) + '\n')
                 self.out_file.flush()
+                # yida translate
+                all_entropy += [trans.entropy_sents.tolist()]
+                if self.model.pos_generator is not None:
+                    n_best_pos_preds = [" ".join(pos_pred)
+                                        for pos_pred in trans.pos_pred_sents[:self.n_best]]
+                    all_pos_predictions += [n_best_pos_preds]
+                    all_pos_entropy += [trans.pos_entropy_sents.tolist()]
 
                 if self.verbose:
                     sent_number = next(counter)
@@ -437,7 +455,9 @@ class Translator(object):
             min_length=0,
             sampling_temp=1.0,
             keep_topk=-1,
-            return_attention=False):
+            return_attention=False,
+            # yida translate
+            vocab_pos=None):
         """Alternative to beam search. Do random sampling at each step."""
 
         assert self.beam_size == 1
@@ -474,14 +494,22 @@ class Translator(object):
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
             batch_size, mb_device, min_length, self.block_ngram_repeat,
             self._exclusion_idxs, return_attention, self.max_length,
-            sampling_temp, keep_topk, memory_lengths)
+            sampling_temp, keep_topk, memory_lengths,
+            # yida translate
+            self.model.pos_generator is not None, vocab_pos)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
+            # yida translate
+            pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
+                if self.model.pos_generator is not None else None
 
-            log_probs, attn = self._decode_and_generate(
+            # yida translate
+            log_probs, attn, pos_log_probs = self._decode_and_generate(
                 decoder_input,
+                # yida tranlate
+                pos_decoder_in,
                 memory_bank,
                 batch,
                 src_vocabs,
@@ -491,7 +519,8 @@ class Translator(object):
                 batch_offset=random_sampler.select_indices
             )
 
-            random_sampler.advance(log_probs, attn)
+            # yida tranlate
+            random_sampler.advance(log_probs, attn, pos_log_probs)
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
                 random_sampler.update_finished()
@@ -519,9 +548,14 @@ class Translator(object):
         results["scores"] = random_sampler.scores
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
+        # yida translate
+        if self.model.pos_generator is not None:
+            results["pos_predictions"] = random_sampler.pos_predictions
+            results["pos_entropy"] = random_sampler.pos_entropy
+            results["entropy"] = random_sampler.entropy
         return results
 
-    def translate_batch(self, batch, src_vocabs, attn_debug):
+    def translate_batch(self, batch, src_vocabs, attn_debug, vocab_pos):
         """Translate a batch of sentences."""
         with torch.no_grad():
             if self.beam_size == 1:
@@ -532,7 +566,9 @@ class Translator(object):
                     min_length=self.min_length,
                     sampling_temp=self.random_sampling_temp,
                     keep_topk=self.sample_from_topk,
-                    return_attention=attn_debug or self.replace_unk)
+                    return_attention=attn_debug or self.replace_unk,
+                    # yida translate
+                    vocab_pos=vocab_pos)
             else:
                 return self._translate_batch(
                     batch,
@@ -547,8 +583,13 @@ class Translator(object):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \
                            else (batch.src, None)
 
+        # yida translate
+        if self.model.pos_generator is not None:
+            pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+        else:
+            pos_src = None
         enc_states, memory_bank, src_lengths = self.model.encoder(
-            src, src_lengths)
+            src, pos_src, src_lengths)
         if src_lengths is None:
             assert not isinstance(memory_bank, tuple), \
                 'Ensemble decoding only supported for text data'
@@ -561,6 +602,8 @@ class Translator(object):
     def _decode_and_generate(
             self,
             decoder_in,
+            # yida translate
+            pos_decoder_in,
             memory_bank,
             batch,
             src_vocabs,
@@ -579,7 +622,8 @@ class Translator(object):
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         dec_out, dec_attn = self.model.decoder(
-            decoder_in, memory_bank, memory_lengths=memory_lengths, step=step
+            # yida translate
+            decoder_in, pos_decoder_in, memory_bank, memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.
@@ -589,6 +633,9 @@ class Translator(object):
             else:
                 attn = None
             log_probs = self.model.generator(dec_out.squeeze(0))
+            # yida translate
+            pos_log_probs = self.model.pos_generator(
+                dec_out.squeeze(0)) if self.model.pos_generator is not None else None
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:
@@ -614,7 +661,8 @@ class Translator(object):
             log_probs = scores.squeeze(0).log()
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
-        return log_probs, attn
+        # yida translate
+        return log_probs, attn, pos_log_probs
 
     def _translate_batch(
             self,
