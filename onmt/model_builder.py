@@ -64,7 +64,8 @@ def build_embeddings(opt, text_field, for_encoder=True):
     return emb
 
 
-def build_encoder(opt, embeddings):
+# TODO(yida) build encoder
+def build_encoder(opt, embeddings, pos_embeddings):
     """
     Various encoder dispatcher function.
     Args:
@@ -73,10 +74,11 @@ def build_encoder(opt, embeddings):
     """
     enc_type = opt.encoder_type if opt.model_type == "text" \
         or opt.model_type == "vec" else opt.model_type
-    return str2enc[enc_type].from_opt(opt, embeddings)
+    return str2enc[enc_type].from_opt(opt, embeddings, pos_embeddings)
 
 
-def build_decoder(opt, embeddings):
+# TODO(yida) build deocder
+def build_decoder(opt, embeddings, pos_dembeddings):
     """
     Various decoder dispatcher function.
     Args:
@@ -85,7 +87,7 @@ def build_decoder(opt, embeddings):
     """
     dec_type = "ifrnn" if opt.decoder_type == "rnn" and opt.input_feed \
                else opt.decoder_type
-    return str2dec[dec_type].from_opt(opt, embeddings)
+    return str2dec[dec_type].from_opt(opt, embeddings, pos_dembeddings)
 
 
 def load_test_model(opt, model_path=None):
@@ -111,6 +113,9 @@ def load_test_model(opt, model_path=None):
         model.float()
     model.eval()
     model.generator.eval()
+    # TODO(yida)
+    if model_opt.pos_gen or model_opt.pos_align:
+        model.pos_generator.eval()
     return fields, model, model_opt
 
 
@@ -146,7 +151,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         src_emb = None
 
     # Build encoder.
-    encoder = build_encoder(model_opt, src_emb)
+    #encoder = build_encoder(model_opt, src_emb)
 
     # Build decoder.
     tgt_field = fields["tgt"]
@@ -160,7 +165,18 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         tgt_emb.word_lut.weight = src_emb.word_lut.weight
 
-    decoder = build_decoder(model_opt, tgt_emb)
+    #decoder = build_decoder(model_opt, tgt_emb)
+
+    # TODO(yida) Build pos embeddings
+    if model_opt.pos_align:
+        pos_src_field = fields["pos_src"]
+        pos_src_emb = build_embeddings(model_opt, pos_src_field)
+        pos_tgt_field = fields["pos_tgt"]
+        pos_tgt_emb = build_embeddings(model_opt, pos_tgt_field, for_encoder=False)
+    else:
+        pos_src_emb, pos_tgt_emb = None, None
+    encoder = build_encoder(model_opt, src_emb, pos_src_emb)
+    decoder = build_decoder(model_opt, tgt_emb, pos_tgt_emb)
 
     # Build NMTModel(= encoder + decoder).
     if gpu and gpu_id is not None:
@@ -169,7 +185,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         device = torch.device("cuda")
     elif not gpu:
         device = torch.device("cpu")
-    model = onmt.models.NMTModel(encoder, decoder)
+    model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_gen or model_opt.pos_align)
 
     # Build Generator.
     if not model_opt.copy_attn:
@@ -185,6 +201,14 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         )
         if model_opt.share_decoder_embeddings:
             generator[0].weight = decoder.embeddings.word_lut.weight
+        # TODO(yida) build model
+        if model_opt.pos_gen or model_opt.pos_align:
+            pos_generator = nn.Sequential(
+                nn.Linear(model_opt.dec_rnn_size,
+                          len(fields["pos_tgt"].base_field.vocab)),
+                Cast(torch.float32),
+                gen_func
+            )
     else:
         tgt_base_field = fields["tgt"].base_field
         vocab_size = len(tgt_base_field.vocab)
@@ -207,12 +231,19 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         model.load_state_dict(checkpoint['model'], strict=False)
         generator.load_state_dict(checkpoint['generator'], strict=False)
+        # TODO(yida) build model
+        if model_opt.pos_gen or model_opt.pos_align:
+            pos_generator.load_state_dict(checkpoint['pos_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             for p in generator.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            # TODO(yida) build model
+            if model_opt.pos_gen or model_opt.pos_align:
+                for p in pos_generator.parameters():
+                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
                 if p.dim() > 1:
@@ -220,6 +251,11 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             for p in generator.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
+            # TODO(yida) build model
+            if model_opt.pos_gen or model_opt.pos_align:
+                for p in pos_generator.parameters():
+                    if p.dim() > 1:
+                        xavier_uniform_(p)
 
         if hasattr(model.encoder, 'embeddings'):
             model.encoder.embeddings.load_pretrained_vectors(
@@ -229,6 +265,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 model_opt.pre_word_vecs_dec)
 
     model.generator = generator
+    # TODO(yida) build model
+    model.pos_generator = pos_generator \
+        if model_opt.pos_gen or model_opt.pos_align else None
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

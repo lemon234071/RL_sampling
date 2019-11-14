@@ -80,10 +80,11 @@ class RNNDecoderBase(DecoderBase):
         :class:`~onmt.modules.GlobalAttention`.
     """
 
+    # TODO(yida) decoder class
     def __init__(self, rnn_type, bidirectional_encoder, num_layers,
                  hidden_size, attn_type="general", attn_func="softmax",
                  coverage_attn=False, context_gate=None,
-                 copy_attn=False, dropout=0.0, embeddings=None,
+                 copy_attn=False, dropout=0.0, embeddings=None, pos_embeddings=None,
                  reuse_copy_attn=False, copy_attn_type="general"):
         super(RNNDecoderBase, self).__init__(
             attentional=attn_type != "none" and attn_type is not None)
@@ -93,6 +94,8 @@ class RNNDecoderBase(DecoderBase):
         self.hidden_size = hidden_size
         self.embeddings = embeddings
         self.dropout = nn.Dropout(dropout)
+        # TODO(yida) decoder
+        self.pos_embeddings = pos_embeddings
 
         # Decoder state
         self.state = {}
@@ -138,8 +141,9 @@ class RNNDecoderBase(DecoderBase):
         if self._reuse_copy_attn and not self.attentional:
             raise ValueError("Cannot reuse copy attention with no attention.")
 
+    # TODO(yida) decoder class
     @classmethod
-    def from_opt(cls, opt, embeddings):
+    def from_opt(cls, opt, embeddings, pos_embeddings):
         """Alternate constructor."""
         return cls(
             opt.rnn_type,
@@ -154,6 +158,7 @@ class RNNDecoderBase(DecoderBase):
             opt.dropout[0] if type(opt.dropout) is list
             else opt.dropout,
             embeddings,
+            pos_embeddings,
             opt.reuse_copy_attn,
             opt.copy_attn_type)
 
@@ -190,7 +195,7 @@ class RNNDecoderBase(DecoderBase):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
         self.state["input_feed"] = self.state["input_feed"].detach()
 
-    def forward(self, tgt, memory_bank, memory_lengths=None, step=None):
+    def forward(self, tgt, memory_bank, pos_tgt=None, memory_lengths=None, step=None):
         """
         Args:
             tgt (LongTensor): sequences of padded tokens
@@ -209,8 +214,9 @@ class RNNDecoderBase(DecoderBase):
               ``(tgt_len, batch, src_len)``.
         """
 
+        # TODO(yida) decoder
         dec_state, dec_outs, attns = self._run_forward_pass(
-            tgt, memory_bank, memory_lengths=memory_lengths)
+            tgt, memory_bank, pos_tgt, memory_lengths=memory_lengths)
 
         # Update the state with the result.
         if not isinstance(dec_state, tuple):
@@ -237,6 +243,9 @@ class RNNDecoderBase(DecoderBase):
     def update_dropout(self, dropout):
         self.dropout.p = dropout
         self.embeddings.update_dropout(dropout)
+        # TODO(yida) decoder
+        if self.pos_embeddings is not None:
+            self.pos_embeddings.update_dropout(dropout)
 
 
 class StdRNNDecoder(RNNDecoderBase):
@@ -355,7 +364,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
           G --> H
     """
 
-    def _run_forward_pass(self, tgt, memory_bank, memory_lengths=None):
+    def _run_forward_pass(self, tgt, memory_bank, pos_tgt, memory_lengths=None):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -385,8 +394,18 @@ class InputFeedRNNDecoder(RNNDecoderBase):
 
         # Input feed concatenates hidden state with
         # input at every time step.
-        for emb_t in emb.split(1):
-            decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
+        # for emb_t in emb.split(1):
+        # TODO(yida) decoder
+        iter_emb = emb.split(1)
+        if self.pos_embeddings is not None:
+            pos_emb = self.pos_embeddings(pos_tgt)
+            iter_emb = zip(iter_emb, pos_emb.split(1))
+        for emb_t in iter_emb:
+            if isinstance(emb_t, tuple):
+                decoder_input = torch.cat([emb_t[0].squeeze(0), emb_t[1].squeeze(0), input_feed], 1)
+            else:
+                decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
+            #decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
             rnn_output, dec_state = self.rnn(decoder_input, dec_state)
             if self.attentional:
                 decoder_output, p_attn = self.attn(
@@ -431,9 +450,15 @@ class InputFeedRNNDecoder(RNNDecoderBase):
     @property
     def _input_size(self):
         """Using input feed by concatenating input with attention vectors."""
+        # TODO(yida) decoder
+        if self.pos_embeddings is not None:
+            return self.embeddings.embedding_size + self.pos_embeddings.embedding_size + self.hidden_size
         return self.embeddings.embedding_size + self.hidden_size
 
     def update_dropout(self, dropout):
         self.dropout.p = dropout
-        self.rnn.dropout.p = dropout
+        self.rnn.dropout.p = dropoutssshi
         self.embeddings.update_dropout(dropout)
+        # TODO(yida) decoder
+        if self.pos_embeddings is not None:
+            self.pos_embeddings.update_dropout(dropout)

@@ -17,8 +17,11 @@ class Statistics(object):
     * elapsed time
     """
 
-    def __init__(self, loss=0, n_words=0, n_correct=0):
+    def __init__(self, loss=0, loss_pos_gen=0, n_words=0, n_correct=0):
         self.loss = loss
+        # TODO(yida) loss
+        self.loss_pos_gen = loss_pos_gen
+
         self.n_words = n_words
         self.n_correct = n_correct
         self.n_src_words = 0
@@ -79,6 +82,8 @@ class Statistics(object):
 
         """
         self.loss += stat.loss
+        # TODO(yida) loss
+        self.loss_pos_gen += stat.loss_pos_gen
         self.n_words += stat.n_words
         self.n_correct += stat.n_correct
 
@@ -97,6 +102,15 @@ class Statistics(object):
         """ compute perplexity """
         return math.exp(min(self.loss / self.n_words, 100))
 
+    # TODO(yida) loss
+    def pos_xent(self):
+        """ compute cross entropy """
+        return self.loss_pos_gen / self.n_words
+
+    def pos_ppl(self):
+        """ compute perplexity """
+        return math.exp(min(self.loss_pos_gen / self.n_words, 100))
+
     def elapsed_time(self):
         """ compute elapsed time """
         return time.time() - self.start_time
@@ -114,12 +128,15 @@ class Statistics(object):
         if num_steps > 0:
             step_fmt = "%s/%5d" % (step_fmt, num_steps)
         logger.info(
-            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; " +
+            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; pos_ppl: %5.2f; pos_xent: %4.2f; " +
              "lr: %7.5f; %3.0f/%3.0f tok/s; %6.0f sec")
             % (step_fmt,
                self.accuracy(),
                self.ppl(),
                self.xent(),
+               # TODO(yida) loss
+               self.pos_ppl(),
+               self.pos_xent(),
                learning_rate,
                self.n_src_words / (t + 1e-5),
                self.n_words / (t + 1e-5),
@@ -131,6 +148,9 @@ class Statistics(object):
         t = self.elapsed_time()
         writer.add_scalar(prefix + "/xent", self.xent(), step)
         writer.add_scalar(prefix + "/ppl", self.ppl(), step)
+        # TODO(yida)
+        writer.add_scalar(prefix + "/pos_xent", self.pos_xent(), step)
+        writer.add_scalar(prefix + "/pos_ppl", self.pos_ppl(), step)
         writer.add_scalar(prefix + "/accuracy", self.accuracy(), step)
         writer.add_scalar(prefix + "/tgtper", self.n_words / t, step)
         writer.add_scalar(prefix + "/lr", learning_rate, step)

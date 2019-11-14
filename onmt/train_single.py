@@ -69,8 +69,9 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     else:
         fields = vocab
 
+    # TODO(yida) train
     # Report src and tgt vocab sizes, including for features
-    for side in ['src', 'tgt']:
+    for side in ['src', 'tgt', 'pos_src', 'pos_tgt']:
         f = fields[side]
         try:
             f_iter = iter(f)

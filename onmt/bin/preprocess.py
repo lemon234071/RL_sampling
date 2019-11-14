@@ -42,22 +42,26 @@ def check_existing_pt_files(opt, corpus_type, ids, existing_fields):
             existing_shards += [maybe_id]
     return existing_shards
 
-
+# TODO(yida) preprocess
 def process_one_shard(corpus_params, params):
     corpus_type, fields, src_reader, tgt_reader, opt, existing_fields,\
         src_vocab, tgt_vocab = corpus_params
-    i, (src_shard, tgt_shard, maybe_id, filter_pred) = params
+    # TODO(yida) preprocess
+    i, (src_shard, tgt_shard, pos_src_shard, pos_tgt_shard, maybe_id, filter_pred) = params
     # create one counter per shard
     sub_sub_counter = defaultdict(Counter)
-    assert len(src_shard) == len(tgt_shard)
+    # TODO(yida) preprocess
+    assert len(src_shard) == len(tgt_shard) == len(pos_src_shard) == len(pos_tgt_shard)
     logger.info("Building shard %d." % i)
     dataset = inputters.Dataset(
         fields,
-        readers=([src_reader, tgt_reader]
+        readers=([src_reader, tgt_reader, src_reader, tgt_reader]
                  if tgt_reader else [src_reader]),
-        data=([("src", src_shard), ("tgt", tgt_shard)]
+        # TODO(yida) preprocess
+        data=([("src", src_shard), ("tgt", tgt_shard), ("pos_src", pos_src_shard), ("pos_tgt", pos_tgt_shard)]
               if tgt_reader else [("src", src_shard)]),
-        dirs=([opt.src_dir, None]
+        # TODO(yida) preprocess
+        dirs=([opt.src_dir, None, None, None]
               if tgt_reader else [opt.src_dir]),
         sort_key=inputters.str2sortkey[opt.data_type],
         filter_pred=filter_pred
@@ -133,11 +137,17 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
         srcs = opt.train_src
         tgts = opt.train_tgt
         ids = opt.train_ids
+        # TODO(yida) prerocess
+        pos_srcs = opt.train_pos_src
+        pos_tgts = opt.train_pos_tgt
     elif corpus_type == 'valid':
         counters = None
         srcs = [opt.valid_src]
         tgts = [opt.valid_tgt]
         ids = [None]
+        # TODO(yida) prerocess
+        pos_srcs= opt.valid_pos_src
+        pos_tgts = opt.valid_pos_tgt
 
     src_vocab, tgt_vocab, existing_fields = maybe_load_vocab(
         corpus_type, counters, opt)
@@ -149,7 +159,8 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
     if existing_shards == ids and not opt.overwrite:
         return
 
-    def shard_iterator(srcs, tgts, ids, existing_shards,
+    # TODO(yida) preprocess
+    def shard_iterator(srcs, tgts, pos_srcs, pos_tgts, ids, existing_shards,
                        existing_fields, corpus_type, opt):
         """
         Builds a single iterator yielding every shard of every corpus.
@@ -180,10 +191,15 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
                 filter_pred = None
             src_shards = split_corpus(src, opt.shard_size)
             tgt_shards = split_corpus(tgt, opt.shard_size)
-            for i, (ss, ts) in enumerate(zip(src_shards, tgt_shards)):
-                yield (i, (ss, ts, maybe_id, filter_pred))
 
-    shard_iter = shard_iterator(srcs, tgts, ids, existing_shards,
+            # TODO(yida) preprocess
+            pos_src_shards = split_corpus(pos_srcs, opt.shard_size)
+            pos_tgt_shards = split_corpus(pos_tgts, opt.shard_size)
+            for i, (ss, ts, pss, pts) in enumerate(zip(src_shards, tgt_shards, pos_src_shards, pos_tgt_shards)):
+                yield (i, (ss, ts, pss, pts, maybe_id, filter_pred))
+
+    # TODO(yida) preprocess
+    shard_iter = shard_iterator(srcs, tgts, pos_srcs, pos_tgts, ids, existing_shards,
                                 existing_fields, corpus_type, opt)
 
     with Pool(opt.num_threads) as p:
@@ -260,11 +276,13 @@ def preprocess(opt):
     tgt_reader = inputters.str2reader["text"].from_opt(opt)
 
     logger.info("Building & saving training data...")
+    # TODO(yida) preprocess
     build_save_dataset(
         'train', fields, src_reader, tgt_reader, opt)
 
     if opt.valid_src and opt.valid_tgt:
         logger.info("Building & saving validation data...")
+        # TODO(yida) preprocess
         build_save_dataset('valid', fields, src_reader, tgt_reader, opt)
 
 

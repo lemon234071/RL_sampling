@@ -22,8 +22,9 @@ class RNNEncoder(EncoderBase):
        embeddings (onmt.modules.Embeddings): embedding module to use
     """
 
+    # TODO(yida) encoder class
     def __init__(self, rnn_type, bidirectional, num_layers,
-                 hidden_size, dropout=0.0, embeddings=None,
+                 hidden_size, dropout=0.0, embeddings=None, pos_embeddings=None,
                  use_bridge=False):
         super(RNNEncoder, self).__init__()
         assert embeddings is not None
@@ -32,10 +33,14 @@ class RNNEncoder(EncoderBase):
         assert hidden_size % num_directions == 0
         hidden_size = hidden_size // num_directions
         self.embeddings = embeddings
+        # TODO encoder class
+        self.pos_embeddings = pos_embeddings
+        extra_size = pos_embeddings.embedding_size \
+            if pos_embeddings is not None else 0
 
         self.rnn, self.no_pack_padded_seq = \
             rnn_factory(rnn_type,
-                        input_size=embeddings.embedding_size,
+                        input_size=embeddings.embedding_size + extra_size,
                         hidden_size=hidden_size,
                         num_layers=num_layers,
                         dropout=dropout,
@@ -48,8 +53,9 @@ class RNNEncoder(EncoderBase):
                                     hidden_size,
                                     num_layers)
 
+    # TODO(yida) encoder class
     @classmethod
-    def from_opt(cls, opt, embeddings):
+    def from_opt(cls, opt, embeddings, pos_beddimgs):
         """Alternate constructor."""
         return cls(
             opt.rnn_type,
@@ -58,14 +64,20 @@ class RNNEncoder(EncoderBase):
             opt.enc_rnn_size,
             opt.dropout[0] if type(opt.dropout) is list else opt.dropout,
             embeddings,
+            pos_beddimgs,
             opt.bridge)
 
-    def forward(self, src, lengths=None):
+    def forward(self, src, pos_src, lengths=None):
         """See :func:`EncoderBase.forward()`"""
         self._check_args(src, lengths)
 
         emb = self.embeddings(src)
         # s_len, batch, emb_dim = emb.size()
+        # TODO encoder class
+        if self.pos_embeddings is not None:
+            pos_emb = self.pos_embeddings(pos_src)
+            import torch
+            emb = torch.cat([emb, pos_emb], -1)
 
         packed_emb = emb
         if lengths is not None and not self.no_pack_padded_seq:

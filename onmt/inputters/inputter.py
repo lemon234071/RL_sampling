@@ -119,6 +119,22 @@ def get_fields(
                         "base_name": "tgt"}
     fields["tgt"] = fields_getters["text"](**tgt_field_kwargs)
 
+    # TODO(yida) preprocess
+    pos_src_field_kwargs = {"n_feats": n_src_feats,
+                        "include_lengths": True,
+                        "pad": pad, "bos": None, "eos": None,
+                        "truncate": src_truncate,
+                        "base_name": "pos_src"}
+    fields["pos_src"] = fields_getters[src_data_type](**pos_src_field_kwargs)
+
+    pos_tgt_field_kwargs = {"n_feats": n_tgt_feats,
+                        "include_lengths": False,
+                        "pad": pad, "bos": bos, "eos": eos,
+                        "truncate": tgt_truncate,
+                        "base_name": "pos_tgt"}
+    fields["pos_tgt"] = fields_getters["text"](**pos_tgt_field_kwargs)
+
+
     indices = Field(use_vocab=False, dtype=torch.long, sequential=False)
     fields["indices"] = indices
 
@@ -329,6 +345,24 @@ def _build_fields_vocab(fields, counters, data_type, share_vocab,
         counters,
         build_fv_args,
         size_multiple=vocab_size_multiple if not share_vocab else 1)
+    # TODO(yida) preprocess
+    build_fv_args["pos_src"] = dict(
+        max_size=src_vocab_size, min_freq=src_words_min_frequency)
+    build_fv_args["pos_tgt"] = dict(
+        max_size=tgt_vocab_size, min_freq=tgt_words_min_frequency)
+    pos_src_multifield = fields["pos_src"]
+    _build_fv_from_multifield(
+        pos_src_multifield,
+        counters,
+        build_fv_args,
+        size_multiple=vocab_size_multiple if not share_vocab else 1)
+    pos_tgt_multifield = fields["pos_tgt"]
+    _build_fv_from_multifield(
+        pos_tgt_multifield,
+        counters,
+        build_fv_args,
+        size_multiple=vocab_size_multiple if not share_vocab else 1)
+
     if data_type == 'text':
         src_multifield = fields["src"]
         _build_fv_from_multifield(
@@ -346,6 +380,15 @@ def _build_fields_vocab(fields, counters, data_type, share_vocab,
                 min_freq=src_words_min_frequency,
                 vocab_size_multiple=vocab_size_multiple)
             logger.info(" * merged vocab size: %d." % len(src_field.vocab))
+            # TODO(yida) preprocess
+            logger.info(" * merging pos_src and pos_tgt vocab...")
+            pos_src_field = pos_src_multifield.base_field
+            pos_tgt_field = pos_tgt_multifield.base_field
+            _merge_field_vocabs(
+                pos_src_field, pos_tgt_field, vocab_size=src_vocab_size,
+                min_freq=src_words_min_frequency,
+                vocab_size_multiple=vocab_size_multiple)
+            logger.info(" * merged pos_vocab size: %d." % len(pos_src_field.vocab))
 
     return fields
 

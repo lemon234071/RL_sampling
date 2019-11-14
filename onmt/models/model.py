@@ -12,12 +12,14 @@ class NMTModel(nn.Module):
       decoder (onmt.decoders.DecoderBase): a decoder object
     """
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, encoder, decoder, pos_gen):
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
+        # TODO(yida) model
+        self.pos_gen = pos_gen
 
-    def forward(self, src, tgt, lengths, bptt=False):
+    def forward(self, src, tgt, pos_src, pos_tgt, lengths, bptt=False):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -38,12 +40,18 @@ class NMTModel(nn.Module):
             * dictionary attention dists of ``(tgt_len, batch, src_len)``
         """
         tgt = tgt[:-1]  # exclude last target from inputs
+        # TODO(yida) model
+        pos_tgt = pos_tgt[:-1] if self.pos_gen else None
 
-        enc_state, memory_bank, lengths = self.encoder(src, lengths)
+        # TODO(yida) model
+        pos_align_src = pos_src if self.pos_gen else None
+        enc_state, memory_bank, lengths = self.encoder(src, pos_align_src, lengths)
 
         if bptt is False:
             self.decoder.init_state(src, memory_bank, enc_state)
-        dec_out, attns = self.decoder(tgt, memory_bank,
+        # TODO(yida) model
+        pos_align_tgt = pos_tgt if self.pos_gen else None
+        dec_out, attns = self.decoder(tgt, memory_bank, pos_align_tgt,
                                       memory_lengths=lengths)
         return dec_out, attns
 

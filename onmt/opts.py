@@ -127,6 +127,11 @@ def model_opts(parser):
               choices=['source', 'target', 'both'],
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
+    # TODO(yida)
+    group.add('--pos_gen', '-pos_gen', action="store_true",
+              help="Use or not pos_gen.")
+    group.add('--pos_align', '-pos_align', action="store_true",
+              help="Use or not pos_align.")
 
     # Attention options
     group = parser.add_argument_group('Model- Attention')
@@ -205,6 +210,15 @@ def preprocess_opts(parser):
               help="Path to the validation source data")
     group.add('--valid_tgt', '-valid_tgt',
               help="Path to the validation target data")
+    # TODO(yida)
+    group.add('--train_pos_src', '-train_pos_src', required=True,
+              help="Path to the training target data")
+    group.add('--valid_pos_src', '-valid_pos_src', required=True,
+              help="Path to the training target data")
+    group.add('--train_pos_tgt', '-train_pos_tgt', required=True,
+              help="Path to the training target data")
+    group.add('--valid_pos_tgt', '-valid_pos_tgt', required=True,
+              help="Path to the training target data")
 
     group.add('--src_dir', '-src_dir', default="",
               help="Source directory for image or audio files.")

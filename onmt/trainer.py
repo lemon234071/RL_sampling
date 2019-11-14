@@ -309,9 +309,18 @@ class Trainer(object):
                 src, src_lengths = batch.src if isinstance(batch.src, tuple) \
                                    else (batch.src, None)
                 tgt = batch.tgt
+                # TODO(yida) train
+                if self.model.pos_generator is not None:
+                    pos_src, _ = batch.pos_src \
+                        if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+                    pos_tgt = batch.pos_tgt
+                else:
+                    pos_src = None
+                    pos_tgt = None
 
+                # TODO(yida) train
                 # F-prop through the model.
-                outputs, attns = valid_model(src, tgt, src_lengths)
+                outputs, attns = valid_model(src, tgt, pos_src, pos_tgt, src_lengths)
 
                 # Compute loss.
                 _, batch_stats = self.valid_loss(batch, outputs, attns)
@@ -346,16 +355,28 @@ class Trainer(object):
                 report_stats.n_src_words += src_lengths.sum().item()
 
             tgt_outer = batch.tgt
+            # TODO(yida) train
+            if self.model.pos_generator is not None:
+                pos_src, _ = batch.pos_src \
+                    if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+                pos_outer = batch.pos_tgt
+            else:
+                pos_src = None
+                pos_outer = None
+            #pos_outer = batch.pos_tgt if hasattr(batch, "pos_tgt") else None
 
             bptt = False
             for j in range(0, target_size-1, trunc_size):
                 # 1. Create truncated target.
                 tgt = tgt_outer[j: j + trunc_size]
+                # TODO(yida)
+                pos_tgt = pos_outer[j: j + trunc_size] \
+                    if self.model.pos_generator is not None else None
 
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:
                     self.optim.zero_grad()
-                outputs, attns = self.model(src, tgt, src_lengths, bptt=bptt)
+                outputs, attns = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
                 bptt = True
 
                 # 3. Compute loss.
