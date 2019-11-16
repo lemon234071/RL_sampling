@@ -135,7 +135,7 @@ class RandomSampling(DecodeStrategy):
         # TODO
         entropy = -torch.sum(torch.exp(log_probs) * log_probs, -1)
         if self.pos_gen:
-            pos_entropy = -torch.sum(torch.exp(pos_log_probs) * log_probs, -1)
+            pos_entropy = -torch.sum(torch.exp(pos_log_probs) * pos_log_probs, -1)
             self.H_alive_seq = torch.cat([self.H_alive_seq, entropy.view(entropy.shape[0], 1)], -1)
             self.pos_H_alive_seq = torch.cat([self.pos_H_alive_seq, pos_entropy.view(pos_entropy.shape[0], 1)], -1)
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
@@ -177,10 +177,10 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
+        self.H_alive_seq = self.H_alive_seq[is_alive]
         if self.pos_gen:
-            self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
-            self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
+            self.pos_alive_seq = self.pos_alive_seq[is_alive]
+            self.pos_H_alive_seq = self.pos_H_alive_seq[is_alive]
 
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]

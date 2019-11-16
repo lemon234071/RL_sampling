@@ -19,7 +19,8 @@ from onmt.utils.misc import use_gpu
 from onmt.utils.parse import ArgumentParser
 
 
-def build_embeddings(opt, text_field, for_encoder=True):
+# yida build model
+def build_embeddings(opt, text_field, for_encoder=True, pos=False):
     """
     Args:
         opt: the option in current environment.
@@ -27,6 +28,8 @@ def build_embeddings(opt, text_field, for_encoder=True):
         for_encoder(bool): build Embeddings for encoder or decoder?
     """
     emb_dim = opt.src_word_vec_size if for_encoder else opt.tgt_word_vec_size
+    # yida build model
+    emb_dim = opt.pos_vec_size if pos else emb_dim
 
     if opt.model_type == "vec" and for_encoder:
         return VecEmbedding(
@@ -77,7 +80,7 @@ def build_encoder(opt, embeddings, pos_embeddings=None):
 
 
 # TODO(yida) build deocder
-def build_decoder(opt, embeddings, pos_dembeddings=None):
+def build_decoder(opt, embeddings, pos_embeddings=None):
     """
     Various decoder dispatcher function.
     Args:
@@ -86,7 +89,7 @@ def build_decoder(opt, embeddings, pos_dembeddings=None):
     """
     dec_type = "ifrnn" if opt.decoder_type == "rnn" and opt.input_feed \
                else opt.decoder_type
-    return str2dec[dec_type].from_opt(opt, embeddings, pos_dembeddings)
+    return str2dec[dec_type].from_opt(opt, embeddings, pos_embeddings)
 
 
 def load_test_model(opt, model_path=None):
@@ -169,9 +172,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # TODO(yida) Build pos embeddings
     if model_opt.pos_align:
         pos_src_field = fields["pos_src"]
-        pos_src_emb = build_embeddings(model_opt, pos_src_field)
+        pos_src_emb = build_embeddings(model_opt, pos_src_field, pos=True)
         pos_tgt_field = fields["pos_tgt"]
-        pos_tgt_emb = build_embeddings(model_opt, pos_tgt_field, for_encoder=False)
+        pos_tgt_emb = build_embeddings(model_opt, pos_tgt_field, for_encoder=False, pos=True)
     else:
         pos_src_emb, pos_tgt_emb = None, None
     encoder = build_encoder(model_opt, src_emb, pos_src_emb)

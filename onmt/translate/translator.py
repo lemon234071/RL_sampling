@@ -549,10 +549,10 @@ class Translator(object):
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate
+        results["entropy"] = random_sampler.entropy
         if self.model.pos_generator is not None:
             results["pos_predictions"] = random_sampler.pos_predictions
             results["pos_entropy"] = random_sampler.pos_entropy
-            results["entropy"] = random_sampler.entropy
         return results
 
     def translate_batch(self, batch, src_vocabs, attn_debug, vocab_pos):
@@ -623,7 +623,7 @@ class Translator(object):
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         dec_out, dec_attn = self.model.decoder(
             # yida translate
-            decoder_in, pos_decoder_in, memory_bank, memory_lengths=memory_lengths, step=step
+            decoder_in, memory_bank, pos_decoder_in, memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.

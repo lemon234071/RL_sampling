@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import configargparse
+
 from onmt.models.sru import CheckSRU
 
 
@@ -29,6 +30,9 @@ def model_opts(parser):
               help='Word embedding size for tgt.')
     group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
               help='Word embedding size for src and tgt.')
+    # yida opts
+    group.add('--pos_vec_size', '-pos_vec_size', type=int, default=100,
+              help='Pos embedding size for src and tgt.')
 
     group.add('--share_decoder_embeddings', '-share_decoder_embeddings',
               action='store_true',
@@ -601,6 +605,10 @@ def translate_opts(parser):
 
     group.add('--src', '-src', required=True,
               help="Source sequence to decode (one line per "
+                   "sequence)")
+    # yida translate
+    group.add('--pos_src', '-pos_src', required=True,
+              help="POS source sequence to decode (one line per "
                    "sequence)")
     group.add('--src_dir', '-src_dir', default="",
               help='Source directory for image or audio files')

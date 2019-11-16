@@ -397,6 +397,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         # TODO(yida) decoder
         iter_emb = emb.split(1)
         if self.pos_embeddings is not None:
+            assert tgt.shape == pos_tgt.shape
             pos_emb = self.pos_embeddings(pos_tgt)
             iter_emb = zip(iter_emb, pos_emb.split(1))
         for emb_t in iter_emb:
