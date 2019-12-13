@@ -3,6 +3,57 @@ import torch
 from onmt.translate.decode_strategy import DecodeStrategy
 
 
+# yida translate
+def get_topp(logits, top_p):
+    import torch.nn.functional as F
+    # Compute cumulative probabilities of sorted tokens
+    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+    cumulative_probabilities = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+    # Remove tokens with cumulative probability above the threshold
+    sorted_indices_to_remove = cumulative_probabilities > top_p
+    # Shift the indices to the right to keep also the first token above the threshold
+    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    sorted_indices_to_remove[..., 0] = 0
+
+    # Back to unsorted indices and set them to -infinity
+    batch_pos_mask = torch.full(logits.shape, False).cuda()
+    for i in range(logits.shape[0]):
+        indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
+
+        logits[i][indices_to_remove] = -float('Inf')
+        indices_to_save = sorted_indices[i][~sorted_indices_to_remove[i]]
+        batch_pos_mask[i][indices_to_save] = True
+
+    # indices_to_remove = torch.gather(sorted_indices, -1, sorted_indices_to_remove.long())
+    # logits.masked_fill_(indices_to_remove, -float('Inf'))
+    # indices_saved = torch.gather(sorted_indices, -1, ~sorted_indices_to_remove.long())
+    return logits, batch_pos_mask
+
+
+# yida translate
+def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
+    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
+
+    # entropy
+    # max_h = pos_entropy.max().clone()
+    # min_h = pos_entropy.min().clone()
+    # for i in range(pos_entropy.shape[0]):
+    #     logits[i] = logits[i] / (0.7 * (pos_entropy[i]) / (max_h - min_h))
+
+    # freq
+    logits /= topk_pos_ids * 0.01
+
+    # logits, _ = get_topp(logits, top_p=0.9)
+
+    dist = torch.distributions.Multinomial(
+        logits=logits, total_count=1)
+    topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+    topk_scores = logits.gather(dim=1, index=topk_ids)
+
+    return topk_ids, topk_scores, topk_pos_ids
+
+
 def sample_with_temperature(logits, sampling_temp, keep_topk):
     """Select next tokens randomly from the top k possible next tokens.
 
@@ -141,8 +192,15 @@ class RandomSampling(DecodeStrategy):
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
-        topk_ids, self.topk_scores = sample_with_temperature(
-            log_probs, self.sampling_temp, self.keep_topk)
+        # yida translate
+        dynamic = True
+        if not (dynamic and self.pos_gen):
+            topk_ids, self.topk_scores = sample_with_temperature(
+                log_probs, self.sampling_temp, self.keep_topk)
+        else:
+            topk_ids, self.topk_scores, topk_pos_ids = \
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, entropy, pos_entropy)
+            self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         self.is_finished = topk_ids.eq(self.eos)
 
