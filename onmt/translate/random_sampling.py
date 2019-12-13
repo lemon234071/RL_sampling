@@ -31,18 +31,30 @@ def get_topp(logits, top_p):
     return logits, batch_pos_mask
 
 
+def entropy_guide(pos_entropy):
+    max_h = pos_entropy.max().clone()
+    min_h = pos_entropy.min().clone()
+
+    # for i in range(pos_entropy.shape[0]):
+    #     logits[i] = logits[i] / (0.7 * (pos_entropy[i]) / (max_h - min_h))
+
+    return 0.7 * pos_entropy / (max_h - min_h)
+
+
+def freq_guide(topk_pos_ids):
+    return (topk_pos_ids - 4) * 0.01
+
+
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
 
     # entropy
-    # max_h = pos_entropy.max().clone()
-    # min_h = pos_entropy.min().clone()
-    # for i in range(pos_entropy.shape[0]):
-    #     logits[i] = logits[i] / (0.7 * (pos_entropy[i]) / (max_h - min_h))
-
     # freq
-    logits /= topk_pos_ids * 0.01
+    numerator = freq_guide(topk_pos_ids)
+
+    # temp
+    logits /= numerator
 
     # logits, _ = get_topp(logits, top_p=0.9)
 

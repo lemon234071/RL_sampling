@@ -31,7 +31,7 @@ def model_opts(parser):
     group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
               help='Word embedding size for src and tgt.')
     # yida opts
-    group.add('--pos_vec_size', '-pos_vec_size', type=int, default=100,
+    group.add('--pos_vec_size', '-pos_vec_size', type=int, default=256,
               help='Pos embedding size for src and tgt.')
 
     group.add('--share_decoder_embeddings', '-share_decoder_embeddings',
