@@ -352,6 +352,7 @@ class Translator(object):
         vocab_pos = None
         all_pos_predictions = []
         all_pos_entropy = []
+        cnt_high = 0
 
         start_time = time.time()
 
@@ -382,6 +383,13 @@ class Translator(object):
                     n_best_pos_preds = [" ".join(pos_pred)
                                         for pos_pred in trans.pos_pred_sents[:self.n_best]]
                     all_pos_predictions += [n_best_pos_preds]
+                    pos_seq = []
+                    for x in n_best_pos_preds[0].split():
+                        try:
+                            pos_seq.append(int(x))
+                        except:
+                            pos_seq.append(0)
+                    cnt_high += sum(pos_seq) / len(pos_seq)
                     all_pos_entropy += [trans.pos_entropy_sents.tolist()]
 
                 if self.verbose:
@@ -417,6 +425,9 @@ class Translator(object):
                         os.write(1, output.encode('utf-8'))
 
         end_time = time.time()
+
+        # yida translate
+        print(cnt_high / len(data_iter) / batch_size)
 
         if self.report_score:
             msg = self._report_score('PRED', pred_score_total,

@@ -17,13 +17,12 @@ def get_topp(logits, top_p):
     sorted_indices_to_remove[..., 0] = 0
 
     # Back to unsorted indices and set them to -infinity
-    batch_pos_mask = torch.full(logits.shape, False).cuda()
+    batch_pos_mask = torch.full(logits.shape, True).cuda()
     for i in range(logits.shape[0]):
         indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
 
         logits[i][indices_to_remove] = -float('Inf')
-        indices_to_save = sorted_indices[i][~sorted_indices_to_remove[i]]
-        batch_pos_mask[i][indices_to_save] = True
+        batch_pos_mask[i][indices_to_remove] = False
 
     # indices_to_remove = torch.gather(sorted_indices, -1, sorted_indices_to_remove.long())
     # logits.masked_fill_(indices_to_remove, -float('Inf'))
@@ -41,29 +40,75 @@ def entropy_guide(pos_entropy):
     return 0.7 * pos_entropy / (max_h - min_h)
 
 
-def freq_guide(topk_pos_ids):
-    return (topk_pos_ids - 4) * 0.01
+def pos_guide(logits, pos_logits):
+    import json
+    with open("E:/git/coai_project/ost/vocab_pos_dict.json", "r", encoding="utf-8") as f:
+        vocab_pos = json.load(f)
+    vocab_pos = list(vocab_pos.values())
+    _, pos_saved_indices = get_topp(pos_logits, top_p=0.7)  # bs*pos_size
+    pos_vocab_mask = torch.nn.functional.one_hot(torch.tensor(vocab_pos).cuda()).t()  # pos_size*vocab_size
+    logits_mask = pos_saved_indices.mm(pos_vocab_mask.float())  # bs*vocab_size
+    _, topp_indices = get_topp(logits, top_p=0.9)
+    mask = logits_mask * topp_indices
+    logits.masked_fill_(~mask.bool(), -10000)
+    return logits / 0.7
 
+
+def freq_guide(logits, pos_logits, mask=True):
+    logits_backup = logits.clone()
+    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
+    high = topk_pos_ids.eq(4)
+    # num = high.float().sum() / topk_pos_ids.shape[0]
+    # print(num.item())
+    numerator = high.float() * 0.01 + (~high).float() * 0.7
+    logits /= numerator
+    if mask:
+        high_mask = high.squeeze()
+        index = int(0.001 * (logits.shape[-1] - 4))
+        logits[high_mask, 4 + index:] = -float('Inf')
+        logits[~high_mask, 4: 4 + index] = -float('Inf')
+        # if False:
+        #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
+        #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
+    return logits
+
+
+def freq_guide2(logits, pos_logits, mask=True):
+    logits_backup = logits.clone()
+    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
+    stop_words = topk_pos_ids.eq(4)
+    high = topk_pos_ids.eq(5)
+    low = topk_pos_ids.eq(6)
+    # num = high.float().sum() / topk_pos_ids.shape[0]
+    # print(num.item())
+    numerator = stop_words.float() * 0.1 + high.float() * 0.01 + low.float() * 0.7
+    logits /= numerator
+    if mask:
+        high_mask = high.squeeze()
+        index = int(0.001 * (logits.shape[-1] - 4))
+        logits[high_mask, 4 + index:] = -float('Inf')
+        logits[~high_mask, 4: 4 + index] = -float('Inf')
+        # if False:
+        #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
+        #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
+    return logits
 
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
+    # logits, _ = get_topp(logits, top_p=0.9)
 
     # entropy
-    # freq
-    numerator = freq_guide(topk_pos_ids)
+    # logits = pos_guide(logits, pos_logits)
 
-    # temp
-    logits /= numerator
-
-    # logits, _ = get_topp(logits, top_p=0.9)
+    ## freq x
+    logits = freq_guide(logits, pos_logits)
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)
     topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
     topk_scores = logits.gather(dim=1, index=topk_ids)
 
-    return topk_ids, topk_scores, topk_pos_ids
+    return topk_ids, topk_scores
 
 
 def sample_with_temperature(logits, sampling_temp, keep_topk):
@@ -210,9 +255,8 @@ class RandomSampling(DecodeStrategy):
             topk_ids, self.topk_scores = sample_with_temperature(
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
-            topk_ids, self.topk_scores, topk_pos_ids = \
+            topk_ids, self.topk_scores = \
                 sample_with_dynamic_temperature(log_probs, pos_log_probs, entropy, pos_entropy)
-            self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         self.is_finished = topk_ids.eq(self.eos)
 

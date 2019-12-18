@@ -115,3 +115,4 @@ runs/
 checkpoint/
 log_dir/
 result/
+data*/
