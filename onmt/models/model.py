@@ -12,12 +12,13 @@ class NMTModel(nn.Module):
       decoder (onmt.decoders.DecoderBase): a decoder object
     """
 
-    def __init__(self, encoder, decoder, pos_gen):
+    def __init__(self, encoder, decoder, pos_enc, pos_dec):
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
         # TODO(yida) model
-        self.pos_gen = pos_gen
+        self.pos_enc = pos_enc
+        self.pos_dec = pos_dec
 
     def forward(self, src, tgt, pos_src, pos_tgt, lengths, bptt=False):
         """Forward propagate a `src` and `tgt` pair for training.
@@ -41,16 +42,16 @@ class NMTModel(nn.Module):
         """
         tgt = tgt[:-1]  # exclude last target from inputs
         # TODO(yida) model
-        pos_tgt = pos_tgt[:-1] if self.pos_gen else None
+        pos_tgt = pos_tgt[:-1] if self.pos_dec else None
 
         # TODO(yida) model
-        pos_align_src = pos_src if self.pos_gen else None
+        pos_align_src = pos_src if self.pos_enc else None
         enc_state, memory_bank, lengths = self.encoder(src, pos_align_src, lengths)
 
         if bptt is False:
             self.decoder.init_state(src, memory_bank, enc_state)
         # TODO(yida) model
-        pos_align_tgt = pos_tgt if self.pos_gen else None
+        pos_align_tgt = pos_tgt if self.pos_dec else None
         dec_out, attns = self.decoder(tgt, memory_bank, pos_align_tgt,
                                       memory_lengths=lengths)
         return dec_out, attns

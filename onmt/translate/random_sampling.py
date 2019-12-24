@@ -40,27 +40,34 @@ def entropy_guide(pos_entropy):
     return 0.7 * pos_entropy / (max_h - min_h)
 
 
-def pos_guide(logits, pos_logits):
+def pos_guide(logits, pos_logits, cross=True):
     import json
-    with open("E:/git/coai_project/ost/vocab_pos_dict.json", "r", encoding="utf-8") as f:
+    with open("E:/git/coai_project/ost/tool_data/vocab_pos_dict.json", "r", encoding="utf-8") as f:
         vocab_pos = json.load(f)
     vocab_pos = list(vocab_pos.values())
-    _, pos_saved_indices = get_topp(pos_logits, top_p=0.7)  # bs*pos_size
+    _, pos_saved_indices = get_topp(pos_logits, top_p=0.4)  # bs*pos_size
     pos_vocab_mask = torch.nn.functional.one_hot(torch.tensor(vocab_pos).cuda()).t()  # pos_size*vocab_size
     logits_mask = pos_saved_indices.mm(pos_vocab_mask.float())  # bs*vocab_size
-    _, topp_indices = get_topp(logits, top_p=0.9)
-    mask = logits_mask * topp_indices
+    if cross:
+        _, topp_indices = get_topp(logits, top_p=0.9)
+        mask = logits_mask * topp_indices
+
+    else:
+        mask = logits_mask
+        # for i in range(logits.shape[0]):
+        #     logits[i][logits_mask[i].byte()] = logits[i][logits_mask[i].byte()] * 0.5
     logits.masked_fill_(~mask.bool(), -10000)
-    return logits / 0.7
+    logits /= 0.7
+    return logits
 
 
 def freq_guide(logits, pos_logits, mask=True):
-    logits_backup = logits.clone()
+    # logits_backup = logits.clone()
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 0.01 + (~high).float() * 0.7
+    numerator = high.float() * 0.4 + (~high).float() * 1
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
@@ -73,29 +80,52 @@ def freq_guide(logits, pos_logits, mask=True):
     return logits
 
 
-def freq_guide2(logits, pos_logits, mask=True):
-    logits_backup = logits.clone()
+def freq_guide_stopwords(logits, pos_logits, mask=True):
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
     stop_words = topk_pos_ids.eq(4)
     high = topk_pos_ids.eq(5)
     low = topk_pos_ids.eq(6)
-    # num = high.float().sum() / topk_pos_ids.shape[0]
-    # print(num.item())
-    numerator = stop_words.float() * 0.1 + high.float() * 0.01 + low.float() * 0.7
+    four = topk_pos_ids.lt(4)
+    # low * 0.7 affected eos prob makes seq longer
+    numerator = stop_words.float() * 0.01 + high.float() * 0.01 + low.float() * 0.7 + four * 0.7
     logits /= numerator
     if mask:
-        high_mask = high.squeeze()
-        index = int(0.001 * (logits.shape[-1] - 4))
-        logits[high_mask, 4 + index:] = -float('Inf')
-        logits[~high_mask, 4: 4 + index] = -float('Inf')
-        # if False:
-        #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
-        #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
+        import json
+        with open("E:/git/coai_project/ost/tool_data/stof.json", "r", encoding="utf-8") as f:
+            stof = json.load(f)
+        stof = torch.tensor([x for x in stof.values()]).cuda()
+
+        stopwords_mask = stof.eq(4)
+        stopwords_mask[:4] = True
+        high_mask = stof.eq(5)
+        high_mask[:4] = True
+        low_mask = stof.eq(6)
+        low_mask[:4] = True
+
+        # logits[stop_words.squeeze(), ~stopwords_mask] = -float('Inf')
+        # logits[high.squeeze(), ~high_mask] = -float('Inf')
+        # logits[low.squeeze(), ~low_mask] = -float('Inf')
+        for i in range(logits.shape[0]):
+            if stop_words[i][0]:
+                logits[i, ~stopwords_mask] = -float('Inf')
+            elif high[i][0]:
+                logits[i, ~high_mask] = -float('Inf')
+            else:
+                logits[i, ~low_mask] = -float('Inf')
+
+        # mask_stop = stop_words.float().mm((~stopwords_mask).float().reshape(1, -1))
+        # logits = logits.masked_fill_(mask_stop.bool(), -float('Inf'))
+        # mask_high = high.float().mm((~high_mask).float().reshape(1, -1))
+        # logits = logits.masked_fill_(mask_high.bool(), -float('Inf'))
+        # mask_low = low.float().mm((~low_mask).float().reshape(1, -1))
+        # logits = logits.masked_fill_(mask_low.bool(), -float('Inf'))
     return logits
+
 
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
     # logits, _ = get_topp(logits, top_p=0.9)
+    # logits /= 1
 
     # entropy
     # logits = pos_guide(logits, pos_logits)

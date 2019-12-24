@@ -134,8 +134,10 @@ def model_opts(parser):
     # TODO(yida)
     group.add('--pos_gen', '-pos_gen', action="store_true",
               help="Use or not pos_gen.")
-    group.add('--pos_align', '-pos_align', action="store_true",
-              help="Use or not pos_align.")
+    group.add('--pos_enc', '-pos_enc', action="store_true",
+              help="Use or not pos_enc.")
+    group.add('--pos_dec', '-pos_dec', action="store_true",
+              help="Use or not pos_dec.")
 
     # Attention options
     group = parser.add_argument_group('Model- Attention')

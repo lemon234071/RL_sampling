@@ -3,13 +3,14 @@ This includes: LossComputeBase and the standard NMTLossCompute, and
                sharded loss compute stuff.
 """
 from __future__ import division
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import onmt
-from onmt.modules.sparse_losses import SparsemaxLoss
 from onmt.modules.sparse_activations import LogSparsemax
+from onmt.modules.sparse_losses import SparsemaxLoss
 
 
 def build_loss_compute(model, tgt_field, opt, train=True):
@@ -52,7 +53,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     loss_gen = model.generator[0] if use_raw_logits else model.generator
     # TODO(yida) loss
     pos_loss_gen = None
-    if opt.pos_gen or opt.pos_align:
+    if opt.pos_gen:
         pos_loss_gen = model.pos_generator[0] if use_raw_logits else model.pos_generator
     if opt.copy_attn:
         compute = onmt.modules.CopyGeneratorLossCompute(
