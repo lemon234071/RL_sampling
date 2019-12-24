@@ -62,20 +62,20 @@ def pos_guide(logits, pos_logits, cross=True):
 
 
 def freq_guide(logits, pos_logits, mask=True):
-    # logits_backup = logits.clone()
+    logits_backup = logits.clone()
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 0.4 + (~high).float() * 1
+    numerator = high.float() * 0.01 + (~high).float() * 0.7
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
         index = int(0.001 * (logits.shape[-1] - 4))
         logits[high_mask, 4 + index:] = -float('Inf')
         logits[~high_mask, 4: 4 + index] = -float('Inf')
-        # if False:
-        #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
+        # if True:
+        #     _, topp_indices = get_topp(logits_backup, top_p=0.6)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
     return logits
 

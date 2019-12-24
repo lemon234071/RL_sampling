@@ -63,7 +63,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, pos_loss_gen, lambda_coverage=opt.lambda_coverage)
+            criterion, loss_gen, pos_loss_gen, opt.pos_serial, lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -89,11 +89,10 @@ class LossComputeBase(nn.Module):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, pos_generator):
+    def __init__(self, criterion, generator):
         super(LossComputeBase, self).__init__()
         self.criterion = criterion
         self.generator = generator
-        self.pos_generator = pos_generator
 
     @property
     def padding_idx(self):
@@ -236,10 +235,13 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, pos_generator, normalization="sents",
+    def __init__(self, criterion, generator, pos_generator, pos_serial, normalization="sents",
                  lambda_coverage=0.0):
-        super(NMTLossCompute, self).__init__(criterion, generator, pos_generator)
+        super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
+        # TODO(yida) loss
+        self.pos_generator = pos_generator
+        self.pos_serial = pos_serial
 
     def _make_shard_state(self, batch, output, range_, attns=None):
         # TODO(yida) loss
@@ -272,30 +274,46 @@ class NMTLossCompute(LossComputeBase):
 
     def _compute_loss(self, batch, output, target, pos_output=None, pos_target=None, std_attn=None,
                       coverage_attn=None):
+        if not self.pos_serial:
+            bottled_output = self._bottle(output)
 
-        bottled_output = self._bottle(output)
+            scores = self.generator(bottled_output)
+            gtruth = target.view(-1)
 
-        scores = self.generator(bottled_output)
-        gtruth = target.view(-1)
+            loss = self.criterion(scores, gtruth)
+            if self.lambda_coverage != 0.0:
+                coverage_loss = self._compute_coverage_loss(
+                    std_attn=std_attn, coverage_attn=coverage_attn)
+                loss += coverage_loss
+            # stats = self._stats(loss.clone(), scores, gtruth)
+            #
+            # return loss, stats
+            # TODO(yida) loss
+            loss_dict = {"loss": loss,
+                         "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
+            if self.pos_generator is not None:
+                pos_bottled_output = self._bottle(pos_output)
+                pos_scores = self.pos_generator(pos_bottled_output)
+                pos_gtruth = pos_target.view(-1)
+                loss_dict["pos_loss"] = self.criterion(pos_scores, pos_gtruth)
+            stats = self._stats(loss_dict, scores, gtruth)
+            return sum(list(loss_dict.values())), stats
+        else:
+            gtruth = target.view(-1)
+            # TODO(yida) loss
+            loss_dict = {"loss": torch.tensor(0).cuda(),
+                         "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
 
-        loss = self.criterion(scores, gtruth)
-        if self.lambda_coverage != 0.0:
-            coverage_loss = self._compute_coverage_loss(
-                std_attn=std_attn, coverage_attn=coverage_attn)
-            loss += coverage_loss
-        # stats = self._stats(loss.clone(), scores, gtruth)
-        #
-        # return loss, stats
-        # TODO(yida) loss
-        loss_dict = {"loss": loss,
-                     "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
-        if self.pos_generator is not None:
-            pos_bottled_output = self._bottle(pos_output)
+            pos_bottled_output = self._bottle(output)
             pos_scores = self.pos_generator(pos_bottled_output)
             pos_gtruth = pos_target.view(-1)
             loss_dict["pos_loss"] = self.criterion(pos_scores, pos_gtruth)
-        stats = self._stats(loss_dict, scores, gtruth)
-        return sum(list(loss_dict.values())), stats
+
+            scores = self.generator(pos_scores)
+            loss_dict["loss"] = self.criterion(scores, gtruth)
+
+            stats = self._stats(loss_dict, scores, gtruth)
+            return sum(list(loss_dict.values())), stats
 
     def _compute_coverage_loss(self, std_attn, coverage_attn):
         covloss = torch.min(std_attn, coverage_attn).sum()
