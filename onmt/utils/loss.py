@@ -249,7 +249,6 @@ class NMTLossCompute(LossComputeBase):
             shard_state = {
                 "output": output,
                 "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
-                "pos_output": output.clone(),
                 "pos_target": batch.pos_tgt[range_[0] + 1: range_[1], :, 0]
             }
         else:
@@ -292,8 +291,7 @@ class NMTLossCompute(LossComputeBase):
             loss_dict = {"loss": loss,
                          "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
             if self.pos_generator is not None:
-                pos_bottled_output = self._bottle(pos_output)
-                pos_scores = self.pos_generator(pos_bottled_output)
+                pos_scores = self.pos_generator(bottled_output)
                 pos_gtruth = pos_target.view(-1)
                 loss_dict["pos_loss"] = self.criterion(pos_scores, pos_gtruth)
             stats = self._stats(loss_dict, scores, gtruth)
