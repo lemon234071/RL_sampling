@@ -134,6 +134,8 @@ def model_opts(parser):
     # TODO(yida)
     group.add('--pos_gen', '-pos_gen', action="store_true",
               help="Use or not pos_gen.")
+    group.add('--pos_serial', '-pos_serial', action="store_true",
+              help="Use or not pos_serial.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
               help="Use or not pos_enc.")
     group.add('--pos_dec', '-pos_dec', action="store_true",

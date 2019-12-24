@@ -288,8 +288,7 @@ class NMTLossCompute(LossComputeBase):
         # return loss, stats
         # TODO(yida) loss
         loss_dict = {"loss": loss,
-                     "pos_loss": torch.tensor(0).cuda(),
-                     "pos_de_loss": torch.tensor(0).cuda()}
+                     "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
         if self.pos_generator is not None:
             pos_bottled_output = self._bottle(pos_output)
             pos_scores = self.pos_generator(pos_bottled_output)
