@@ -213,13 +213,13 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         else:
             model_opt.pos_gen = True
             pos_generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size,
+                nn.Linear(len(fields["tgt"].base_field.vocab),
                           len(fields["pos_tgt"].base_field.vocab)),
                 Cast(torch.float32),
                 gen_func
             )
             generator = nn.Sequential(
-                nn.Linear(len(fields["pos_tgt"].base_field.vocab),
+                nn.Linear(model_opt.dec_rnn_size,
                           len(fields["tgt"].base_field.vocab)),
                 Cast(torch.float32),
                 gen_func

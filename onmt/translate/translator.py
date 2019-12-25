@@ -133,7 +133,8 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
-            seed=-1):
+            seed=-1,
+            pos_serial=False):  # TODO(yida) serial
         self.model = model
         self.fields = fields
         tgt_field = dict(self.fields)["tgt"].base_field
@@ -202,6 +203,8 @@ class Translator(object):
                 "log_probs": []}
 
         set_random_seed(seed, self._use_cuda)
+        # TODO(yida) serial
+        self.pos_serial = pos_serial
 
     @classmethod
     def from_opt(
@@ -262,7 +265,9 @@ class Translator(object):
             out_file=out_file,
             report_score=report_score,
             logger=logger,
-            seed=opt.seed)
+            seed=opt.seed,
+            pos_serial=model_opt.pos_serial  # TODO(yida) serial
+        )
 
     def _log(self, msg):
         if self.logger:
@@ -647,12 +652,17 @@ class Translator(object):
                 attn = dec_attn["std"]
             else:
                 attn = None
-            log_probs = self.model.generator(dec_out.squeeze(0))
-            # yida translate
-            pos_log_probs = self.model.pos_generator(
-                dec_out.squeeze(0)) if self.model.pos_generator is not None else None
-            # returns [(batch_size x beam_size) , vocab ] when 1 step
-            # or [ tgt_len, batch_size, vocab ] when full sentence
+            # TODO(yida) serial
+            if not self.pos_serial:
+                log_probs = self.model.generator(dec_out.squeeze(0))
+                # yida translate
+                pos_log_probs = self.model.pos_generator(
+                    dec_out.squeeze(0)) if self.model.pos_generator is not None else None
+                # returns [(batch_size x beam_size) , vocab ] when 1 step
+                # or [ tgt_len, batch_size, vocab ] when full sentence
+            else:
+                pos_log_probs = self.model.pos_generator(dec_out.squeeze(0))
+                log_probs = self.model.generator(pos_log_probs)
         else:
             attn = dec_attn["copy"]
             scores = self.model.generator(dec_out.view(-1, dec_out.size(2)),

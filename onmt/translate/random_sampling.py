@@ -45,7 +45,7 @@ def pos_guide(logits, pos_logits, cross=True):
     with open("E:/git/coai_project/ost/tool_data/vocab_pos_dict.json", "r", encoding="utf-8") as f:
         vocab_pos = json.load(f)
     vocab_pos = list(vocab_pos.values())
-    _, pos_saved_indices = get_topp(pos_logits, top_p=0.4)  # bs*pos_size
+    _, pos_saved_indices = get_topp(pos_logits, top_p=0.5)  # bs*pos_size
     pos_vocab_mask = torch.nn.functional.one_hot(torch.tensor(vocab_pos).cuda()).t()  # pos_size*vocab_size
     logits_mask = pos_saved_indices.mm(pos_vocab_mask.float())  # bs*vocab_size
     if cross:
@@ -62,7 +62,7 @@ def pos_guide(logits, pos_logits, cross=True):
 
 
 def freq_guide(logits, pos_logits, mask=True):
-    logits_backup = logits.clone()
+    # logits_backup = logits.clone()
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
@@ -128,10 +128,10 @@ def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
     # logits /= 1
 
     # entropy
-    # logits = pos_guide(logits, pos_logits)
+    logits = pos_guide(logits, pos_logits)
 
     ## freq x
-    logits = freq_guide(logits, pos_logits)
+    # logits = freq_guide(logits, pos_logits)
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)

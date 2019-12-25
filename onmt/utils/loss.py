@@ -273,6 +273,7 @@ class NMTLossCompute(LossComputeBase):
 
     def _compute_loss(self, batch, output, target, pos_output=None, pos_target=None, std_attn=None,
                       coverage_attn=None):
+        # TODO(yida) serial
         if not self.pos_serial:
             bottled_output = self._bottle(output)
 
@@ -301,14 +302,16 @@ class NMTLossCompute(LossComputeBase):
             # TODO(yida) loss
             loss_dict = {"loss": torch.tensor(0).cuda(),
                          "pos_loss": torch.tensor(0).cuda()}  # , "pos_de_loss": torch.tensor(0).cuda()
+            bottled_output = self._bottle(output)
+            scores = self.generator(bottled_output)
+            loss_dict["loss"] = self.criterion(scores, gtruth)
 
-            pos_bottled_output = self._bottle(output)
-            pos_scores = self.pos_generator(pos_bottled_output)
+            pos_scores = self.pos_generator(scores)
             pos_gtruth = pos_target.view(-1)
             loss_dict["pos_loss"] = self.criterion(pos_scores, pos_gtruth)
 
-            scores = self.generator(pos_scores)
-            loss_dict["loss"] = self.criterion(scores, gtruth)
+            # scores = self.generator(pos_scores)
+            # loss_dict["loss"] = self.criterion(scores, gtruth)
 
             stats = self._stats(loss_dict, scores, gtruth)
             return sum(list(loss_dict.values())), stats
