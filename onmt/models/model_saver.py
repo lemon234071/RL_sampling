@@ -100,16 +100,13 @@ class ModelSaver(ModelSaverBase):
         model_state_dict = {k: v for k, v in model_state_dict.items()
                             if 'generator' not in k}
         generator_state_dict = model.generator.state_dict()
-        # TODO(yida) build model
-        pos_generator_state_dict = model.pos_generator.state_dict() \
-            if model.pos_generator is not None else None
 
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
 
         # TODO(yida) build model
         vocab = deepcopy(self.fields)
-        for side in ["src", "tgt", "pos_src", "pos_tgt"]:
+        for side in ["src"]:
             keys_to_pop = []
             if hasattr(vocab[side], "fields"):
                 unk_token = vocab[side].fields[0][1].vocab.itos[0]
@@ -126,9 +123,6 @@ class ModelSaver(ModelSaverBase):
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }
-        # TODO(yida) build model
-        if model.pos_generator is not None:
-            checkpoint['pos_generator'] = pos_generator_state_dict
 
         logger.info("Saving checkpoint %s_step_%d.pt" % (self.base_path, step))
         checkpoint_path = '%s_step_%d.pt' % (self.base_path, step)

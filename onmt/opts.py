@@ -608,10 +608,6 @@ def translate_opts(parser):
     group.add('--src', '-src', required=True,
               help="Source sequence to decode (one line per "
                    "sequence)")
-    # yida translate
-    group.add('--pos_src', '-pos_src', required=True,
-              help="POS source sequence to decode (one line per "
-                   "sequence)")
     group.add('--src_dir', '-src_dir', default="",
               help='Source directory for image or audio files')
     group.add('--tgt', '-tgt',
@@ -749,6 +745,124 @@ def translate_opts(parser):
               type=int, default=3, choices=[3, 1],
               help="Using grayscale image can training "
                    "model faster and smaller")
+
+    # yida translate
+    group.add('--pos_src', '-pos_src', required=True,
+              help="POS source sequence to decode (one line per "
+                   "sequence)")
+    group.add('--data', '-data', required=False,
+              help='Path prefix to the ".train.pt" and '
+                   '".valid.pt" file path from preprocess.py')
+    group = parser.add_argument_group('Initialization')
+    group.add('--train_from', '-train_from', default='', type=str,
+              help="If training from a checkpoint then this is the "
+                   "path to the pretrained model's state_dict.")
+    group.add('--param_init', '-param_init', type=float, default=0.1,
+              help="Parameters are initialized over uniform distribution "
+                   "with support (-param_init, param_init). "
+                   "Use 0 to not use initialization")
+    group.add('--param_init_glorot', '-param_init_glorot', action='store_true',
+              help="Init parameters with xavier_uniform. "
+                   "Required for transformer.")
+    group = parser.add_argument_group('Optimization- Type')
+    group.add('--accum_count', '-accum_count', type=int, nargs='+',
+              default=[1],
+              help="Accumulate gradient this many times. "
+                   "Approximately equivalent to updating "
+                   "batch_size * accum_count batches at once. "
+                   "Recommended for Transformer.")
+    group.add('--accum_steps', '-accum_steps', type=int, nargs='+',
+              default=[0], help="Steps at which accum_count values change")
+    group.add('--valid_steps', '-valid_steps', type=int, default=10000,
+              help='Perfom validation every X steps')
+    group.add('--valid_batch_size', '-valid_batch_size', type=int, default=32,
+              help='Maximum batch size for validation')
+    group.add('--train_steps', '-train_steps', type=int, default=100000,
+              help='Number of training steps')
+    group.add('--optim', '-optim', default='sgd',
+              choices=['sgd', 'adagrad', 'adadelta', 'adam',
+                       'sparseadam', 'adafactor', 'fusedadam'],
+              help="Optimization method.")
+    group.add('--adagrad_accumulator_init', '-adagrad_accumulator_init',
+              type=float, default=0,
+              help="Initializes the accumulator values in adagrad. "
+                   "Mirrors the initial_accumulator_value option "
+                   "in the tensorflow adagrad (use 0.1 for their default).")
+    group.add('--max_grad_norm', '-max_grad_norm', type=float, default=5,
+              help="If the norm of the gradient vector exceeds this, "
+                   "renormalize it to have the norm equal to "
+                   "max_grad_norm")
+    group.add('--dropout', '-dropout', type=float, default=[0.3], nargs='+',
+              help="Dropout probability; applied in LSTM stacks.")
+    group.add('--attention_dropout', '-attention_dropout', type=float,
+              default=[0.1], nargs='+',
+              help="Attention Dropout probability.")
+    group.add('--dropout_steps', '-dropout_steps', type=int, nargs='+',
+              default=[0], help="Steps at which dropout changes.")
+    group.add('--truncated_decoder', '-truncated_decoder', type=int, default=0,
+              help="""Truncated bptt.""")
+    group.add('--adam_beta1', '-adam_beta1', type=float, default=0.9,
+              help="The beta1 parameter used by Adam. "
+                   "Almost without exception a value of 0.9 is used in "
+                   "the literature, seemingly giving good results, "
+                   "so we would discourage changing this value from "
+                   "the default without due consideration.")
+    group.add('--adam_beta2', '-adam_beta2', type=float, default=0.999,
+              help='The beta2 parameter used by Adam. '
+                   'Typically a value of 0.999 is recommended, as this is '
+                   'the value suggested by the original paper describing '
+                   'Adam, and is also the value adopted in other frameworks '
+                   'such as Tensorflow and Kerras, i.e. see: '
+                   'https://www.tensorflow.org/api_docs/python/tf/train/Adam'
+                   'Optimizer or '
+                   'https://keras.io/optimizers/ . '
+                   'Whereas recently the paper "Attention is All You Need" '
+                   'suggested a value of 0.98 for beta2, this parameter may '
+                   'not work well for normal models / default '
+                   'baselines.')
+    group.add('--label_smoothing', '-label_smoothing', type=float, default=0.0,
+              help="Label smoothing value epsilon. "
+                   "Probabilities of all non-true labels "
+                   "will be smoothed by epsilon / (vocab_size - 1). "
+                   "Set to zero to turn off label smoothing. "
+                   "For more detailed information, see: "
+                   "https://arxiv.org/abs/1512.00567")
+    group.add('--average_decay', '-average_decay', type=float, default=0,
+              help="Moving average decay. "
+                   "Set to other than 0 (e.g. 1e-4) to activate. "
+                   "Similar to Marian NMT implementation: "
+                   "http://www.aclweb.org/anthology/P18-4020 "
+                   "For more detail on Exponential Moving Average: "
+                   "https://en.wikipedia.org/wiki/Moving_average")
+    group.add('--average_every', '-average_every', type=int, default=1,
+              help="Step for moving average. "
+                   "Default is every update, "
+                   "if -average_decay is set.")
+
+    # learning rate
+    group = parser.add_argument_group('Optimization- Rate')
+    group.add('--learning_rate', '-learning_rate', type=float, default=1.0,
+              help="Starting learning rate. "
+                   "Recommended settings: sgd = 1, adagrad = 0.1, "
+                   "adadelta = 1, adam = 0.001")
+    group.add('--learning_rate_decay', '-learning_rate_decay',
+              type=float, default=0.5,
+              help="If update_learning_rate, decay learning rate by "
+                   "this much if steps have gone past "
+                   "start_decay_steps")
+    group.add('--start_decay_steps', '-start_decay_steps',
+              type=int, default=50000,
+              help="Start decaying every decay_steps after "
+                   "start_decay_steps")
+    group.add('--decay_steps', '-decay_steps', type=int, default=10000,
+              help="Decay every decay_steps")
+
+    group.add('--decay_method', '-decay_method', type=str, default="none",
+              choices=['noam', 'noamwd', 'rsqrt', 'none'],
+              help="Use a custom decay rate.")
+    group.add('--warmup_steps', '-warmup_steps', type=int, default=4000,
+              help="Number of warmup steps for custom decay.")
+
 
 
 # Copyright 2016 The Chromium Authors. All rights reserved.

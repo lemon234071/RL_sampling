@@ -13,14 +13,16 @@ import torch
 import onmt.decoders.ensemble
 import onmt.inputters as inputters
 import onmt.model_builder
-import onmt.translate.beam
+import onmt.rl.beam
 from onmt.modules.copy_generator import collapse_copy_scores
-from onmt.translate.beam_search import BeamSearch
-from onmt.translate.random_sampling import RandomSampling
+from onmt.rl.beam_search import BeamSearch
+# yida RL translate
+from onmt.rl.eval import cal_reward
+from onmt.rl.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 
 
-def build_translator(opt, report_score=True, logger=None, out_file=None):
+def build_rltor(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
     if out_file is None:
         out_file = codecs.open(opt.output, 'w+', 'utf-8')
 
@@ -28,10 +30,11 @@ def build_translator(opt, report_score=True, logger=None, out_file=None):
         if len(opt.models) > 1 else onmt.model_builder.load_test_model
     fields, model, model_opt = load_test_model(opt)
 
-    scorer = onmt.translate.GNMTGlobalScorer.from_opt(opt)
+    scorer = onmt.rl.GNMTGlobalScorer.from_opt(opt)
 
     translator = Translator.from_opt(
         model,
+        rl_model, optim, model_saver,
         fields,
         opt,
         model_opt,
@@ -106,6 +109,7 @@ class Translator(object):
     def __init__(
             self,
             model,
+            rl_model, optim, model_saver,
             fields,
             src_reader,
             tgt_reader,
@@ -135,6 +139,7 @@ class Translator(object):
             logger=None,
             seed=-1):
         self.model = model
+        self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.fields = fields
         tgt_field = dict(self.fields)["tgt"].base_field
         self._tgt_vocab = tgt_field.vocab
@@ -207,6 +212,7 @@ class Translator(object):
     def from_opt(
             cls,
             model,
+            rl_model, optim, model_saver,
             fields,
             opt,
             model_opt,
@@ -235,6 +241,7 @@ class Translator(object):
         tgt_reader = inputters.str2reader["text"].from_opt(opt)
         return cls(
             model,
+            rl_model, optim, model_saver,
             fields,
             src_reader,
             tgt_reader,
@@ -272,7 +279,8 @@ class Translator(object):
 
     def _gold_score(self, batch, memory_bank, src_lengths, src_vocabs,
                     use_src_map, enc_states, batch_size, src):
-        if "tgt1" in batch.__dict__:
+        # if "tgt" in batch.__dict__:
+        if False:
             gs = self._score_target(
                 batch, memory_bank, src_lengths, src_vocabs,
                 batch.src_map if use_src_map else None)
@@ -281,7 +289,95 @@ class Translator(object):
             gs = [0] * batch_size
         return gs
 
-    def translate(
+    def ids2sents(
+            self,
+            batch_data,
+            xlation_builder,
+            all_predictions, all_entropy,
+            all_pos_predictions, all_pos_entropy,
+            cnt_high, cnt_line):
+        """
+
+        :param batch_data:
+        :param xlation_builder:
+        :param all_predictions:
+        :param all_entropy:
+        :param all_pos_predictions:
+        :param all_pos_entropy:
+        :param cnt_high:
+        :param cnt_line:
+        :return:
+        """
+        batch_predictions = []
+        batch_gt = []
+        translations = xlation_builder.from_batch(batch_data)
+        for trans in translations:
+            # all_scores += [trans.pred_scores[:self.n_best]]
+            # pred_score_total += trans.pred_scores[0]
+            # pred_words_total += len(trans.pred_sents[0])
+            # if tgt is not None:
+            #     gold_score_total += trans.gold_score
+            #     gold_words_total += len(trans.gold_sent) + 1
+
+            n_best_preds = [" ".join(pred)
+                            for pred in trans.pred_sents[:self.n_best]]
+            all_predictions += [n_best_preds]
+            batch_predictions += [n_best_preds]
+            batch_gt += [trans.tgt_raw]
+            # self.out_file.write('\n'.join(n_best_preds) + '\n')
+            # self.out_file.flush()
+            # yida translate
+            all_entropy += [trans.entropy_sents.tolist()]
+            # if self.model.pos_generator is not None:
+            #     n_best_pos_preds = [" ".join(pos_pred)
+            #                         for pos_pred in trans.pos_pred_sents[:self.n_best]]
+            #     all_pos_predictions += [n_best_pos_preds]
+            #     pos_seq = []
+            #     for x in n_best_pos_preds[0].split():
+            #         try:
+            #             pos_seq.append(int(x))
+            #         except:
+            #             pos_seq.append(0)
+            #     temp_seq = [x for x in pos_seq if x < 2]
+            #     if temp_seq:
+            #         cnt_high += sum(temp_seq) / len(temp_seq)
+            #     cnt_line += 1
+            #     all_pos_entropy += [trans.pos_entropy_sents.tolist()]
+
+            # if self.verbose:
+            #     sent_number = next(counter)
+            #     output = trans.log(sent_number)
+            #     if self.logger:
+            #         self.logger.info(output)
+            #     else:
+            #         os.write(1, output.encode('utf-8'))
+
+            # if attn_debug:
+            #     preds = trans.pred_sents[0]
+            #     preds.append('</s>')
+            #     attns = trans.attns[0].tolist()
+            #     if self.data_type == 'text':
+            #         srcs = trans.src_raw
+            #     else:
+            #         srcs = [str(item) for item in range(len(attns[0]))]
+            #     header_format = "{:>10.10} " + "{:>10.7} " * len(srcs)
+            #     row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
+            #     output = header_format.format("", *srcs) + '\n'
+            #     for word, row in zip(preds, attns):
+            #         max_index = row.index(max(row))
+            #         row_format = row_format.replace(
+            #             "{:>10.7f} ", "{:*>10.7f} ", max_index + 1)
+            #         row_format = row_format.replace(
+            #             "{:*>10.7f} ", "{:>10.7f} ", max_index)
+            #         output += row_format.format(word, *row) + '\n'
+            #         row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
+            #     if self.logger:
+            #         self.logger.info(output)
+            #     else:
+            #         os.write(1, output.encode('utf-8'))
+        return batch_predictions, batch_gt
+
+    def rltrain(
             self,
             src,
             # yida translate
@@ -335,8 +431,8 @@ class Translator(object):
             shuffle=False
         )
 
-        xlation_builder = onmt.translate.TranslationBuilder(
-            data, self.fields, self.n_best, self.replace_unk, tgt,
+        xlation_builder = onmt.rl.TranslationBuilder(
+            data, self.fields, self.n_best, self.replace_unk, False,
             self.phrase_table
         )
 
@@ -349,7 +445,6 @@ class Translator(object):
         all_predictions = []
         # yida translate
         all_entropy = []
-        vocab_pos = None
         all_pos_predictions = []
         all_pos_entropy = []
         cnt_high = 0
@@ -357,121 +452,100 @@ class Translator(object):
 
         start_time = time.time()
 
-        for batch in data_iter:
-            batch_data = self.translate_batch(
-                batch, data.src_vocabs, attn_debug,
-                # yida translate
-                vocab_pos
-            )
-            translations = xlation_builder.from_batch(batch_data)
+        self.rl_model.train()
 
-            for trans in translations:
-                all_scores += [trans.pred_scores[:self.n_best]]
-                pred_score_total += trans.pred_scores[0]
-                pred_words_total += len(trans.pred_sents[0])
-                if tgt is not None:
-                    gold_score_total += trans.gold_score
-                    gold_words_total += len(trans.gold_sent) + 1
+        epochs = 3
+        for epoch in range(epochs):
+            for batch in data_iter:
+                step = self.optim.training_step
+                # Encoder forward.
+                self.model.eval()
+                with torch.no_grad():
+                    src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+                    self.model.decoder.init_state(src, memory_bank, enc_states)
 
-                n_best_preds = [" ".join(pred)
-                                for pred in trans.pred_sents[:self.n_best]]
-                all_predictions += [n_best_preds]
-                self.out_file.write('\n'.join(n_best_preds) + '\n')
-                self.out_file.flush()
-                # yida translate
-                all_entropy += [trans.entropy_sents.tolist()]
-                if self.model.pos_generator is not None:
-                    n_best_pos_preds = [" ".join(pos_pred)
-                                        for pos_pred in trans.pos_pred_sents[:self.n_best]]
-                    all_pos_predictions += [n_best_pos_preds]
-                    pos_seq = []
-                    for x in n_best_pos_preds[0].split():
-                        try:
-                            pos_seq.append(int(x))
-                        except:
-                            pos_seq.append(0)
-                    temp_seq = [x for x in pos_seq if x < 2]
-                    if temp_seq:
-                        cnt_high += sum(temp_seq) / len(temp_seq)
-                    cnt_line += 1
-                    all_pos_entropy += [trans.pos_entropy_sents.tolist()]
+                self.optim.zero_grad()
 
-                if self.verbose:
-                    sent_number = next(counter)
-                    output = trans.log(sent_number)
-                    if self.logger:
-                        self.logger.info(output)
-                    else:
-                        os.write(1, output.encode('utf-8'))
+                input = enc_states.transpose(0, 1)
+                input = input.contiguous().view(input.size(0), -1)
+                logits = self.rl_model(input)
+                topk_scores, topk_ids = logits.topk(1, dim=-1)
+                learned_t = self.tid2t(topk_ids)
+                print(learned_t[:5].squeeze())
 
-                if attn_debug:
-                    preds = trans.pred_sents[0]
-                    preds.append('</s>')
-                    attns = trans.attns[0].tolist()
-                    if self.data_type == 'text':
-                        srcs = trans.src_raw
-                    else:
-                        srcs = [str(item) for item in range(len(attns[0]))]
-                    header_format = "{:>10.10} " + "{:>10.7} " * len(srcs)
-                    row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
-                    output = header_format.format("", *srcs) + '\n'
-                    for word, row in zip(preds, attns):
-                        max_index = row.index(max(row))
-                        row_format = row_format.replace(
-                            "{:>10.7f} ", "{:*>10.7f} ", max_index + 1)
-                        row_format = row_format.replace(
-                            "{:*>10.7f} ", "{:>10.7f} ", max_index)
-                        output += row_format.format(word, *row) + '\n'
-                        row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
-                    if self.logger:
-                        self.logger.info(output)
-                    else:
-                        os.write(1, output.encode('utf-8'))
+                batch_data = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
+                )
+
+                batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder,
+                                                           all_predictions, all_entropy, all_pos_predictions,
+                                                           all_pos_entropy,
+                                                           cnt_high, cnt_line)
+                # preds = [x.tolist() for x in batch_data["predictions"]]
+                # golden_truth = batch.tgt[1][0]
+                reward = cal_reward(batch_sents, golden_truth)
+                loss = -torch.sum(reward["sum_bleu"] * logits)
+                print(step, loss.item(), reward["bleu"])
+
+                loss.backward()
+                self.optim.step()
+
+                # if step % 1000 == 0:
+                #     self.rl_model.eval()
+                #     with torch.no_grad:
+                #         print(1)
 
         end_time = time.time()
 
         # yida translate
         print(cnt_high / cnt_line)
 
-        if self.report_score:
-            msg = self._report_score('PRED', pred_score_total,
-                                     pred_words_total)
-            self._log(msg)
-            if tgt is not None:
-                msg = self._report_score('GOLD', gold_score_total,
-                                         gold_words_total)
-                self._log(msg)
-                if self.report_bleu:
-                    msg = self._report_bleu(tgt)
-                    self._log(msg)
-                if self.report_rouge:
-                    msg = self._report_rouge(tgt)
-                    self._log(msg)
+        # if self.report_score:
+        #     msg = self._report_score('PRED', pred_score_total,
+        #                              pred_words_total)
+        #     self._log(msg)
+        #     if tgt is not None:
+        #         msg = self._report_score('GOLD', gold_score_total,
+        #                                  gold_words_total)
+        #         self._log(msg)
+        #         if self.report_bleu:
+        #             msg = self._report_bleu(tgt)
+        #             self._log(msg)
+        #         if self.report_rouge:
+        #             msg = self._report_rouge(tgt)
+        #             self._log(msg)
 
         if self.report_time:
             total_time = end_time - start_time
             self._log("Total translation time (s): %f" % total_time)
             self._log("Average translation time (s): %f" % (
-                total_time / len(all_predictions)))
+                    total_time / len(all_predictions)))
             self._log("Tokens per second: %f" % (
-                pred_words_total / total_time))
+                    pred_words_total / total_time))
 
-        if self.dump_beam:
-            import json
-            json.dump(self.translator.beam_accum,
-                      codecs.open(self.dump_beam, 'w', 'utf-8'))
+        # if self.dump_beam:
+        #     import json
+        #     json.dump(self.translator.beam_accum,
+        #               codecs.open(self.dump_beam, 'w', 'utf-8'))
         return all_scores, all_predictions
+
+    def tid2t(self, t_ids):
+        t = (t_ids.float() + 1) / 10
+        return t
 
     def _translate_random_sampling(
             self,
             batch,
             src_vocabs,
             max_length,
+            # yida RL translate
+            memory_bank, src_lengths, enc_states, src, learned_t,
+            #
             min_length=0,
             sampling_temp=1.0,
             keep_topk=-1,
             return_attention=False,
-            # yida translate
+            # yida RL translate
             vocab_pos=None):
         """Alternative to beam search. Do random sampling at each step."""
 
@@ -482,9 +556,9 @@ class Translator(object):
 
         batch_size = batch.batch_size
 
-        # Encoder forward.
-        src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
-        self.model.decoder.init_state(src, memory_bank, enc_states)
+        # # Encoder forward.
+        # src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+        # self.model.decoder.init_state(src, memory_bank, enc_states)
 
         use_src_map = self.copy_attn
 
@@ -511,7 +585,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos)
+            self.model.pos_generator is not None, vocab_pos, learned_t)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -570,7 +644,9 @@ class Translator(object):
             results["pos_entropy"] = random_sampler.pos_entropy
         return results
 
-    def translate_batch(self, batch, src_vocabs, attn_debug, vocab_pos):
+    def translate_batch(self, batch, src_vocabs, attn_debug,
+                        # yida RL translate
+                        memory_bank, src_lengths, enc_states, src, learned_t):
         """Translate a batch of sentences."""
         with torch.no_grad():
             if self.beam_size == 1:
@@ -578,12 +654,13 @@ class Translator(object):
                     batch,
                     src_vocabs,
                     self.max_length,
+                    # yida RL translate
+                    memory_bank, src_lengths, enc_states, src, learned_t,
+                    #
                     min_length=self.min_length,
                     sampling_temp=self.random_sampling_temp,
                     keep_topk=self.sample_from_topk,
-                    return_attention=attn_debug or self.replace_unk,
-                    # yida translate
-                    vocab_pos=vocab_pos)
+                    return_attention=attn_debug or self.replace_unk)
             else:
                 return self._translate_batch(
                     batch,
@@ -596,7 +673,7 @@ class Translator(object):
 
     def _run_encoder(self, batch):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \
-                           else (batch.src, None)
+            else (batch.src, None)
 
         # yida translate
         if self.model.pos_generator is not None:
@@ -609,9 +686,9 @@ class Translator(object):
             assert not isinstance(memory_bank, tuple), \
                 'Ensemble decoding only supported for text data'
             src_lengths = torch.Tensor(batch.batch_size) \
-                               .type_as(memory_bank) \
-                               .long() \
-                               .fill_(memory_bank.size(0))
+                .type_as(memory_bank) \
+                .long() \
+                .fill_(memory_bank.size(0))
         return src, enc_states, memory_bank, src_lengths
 
     def _decode_and_generate(
