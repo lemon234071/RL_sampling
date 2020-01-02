@@ -453,13 +453,13 @@ class Translator(object):
         start_time = time.time()
 
         self.rl_model.train()
+        self.model.eval()
 
-        epochs = 3
+        epochs = 100
         for epoch in range(epochs):
             for batch in data_iter:
                 step = self.optim.training_step
                 # Encoder forward.
-                self.model.eval()
                 with torch.no_grad():
                     src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
                     self.model.decoder.init_state(src, memory_bank, enc_states)
@@ -472,20 +472,36 @@ class Translator(object):
                 topk_scores, topk_ids = logits.topk(1, dim=-1)
                 learned_t = self.tid2t(topk_ids)
                 print(learned_t[:5].squeeze())
+                print("rate:", sum(learned_t.gt(1)).item())
 
                 batch_data = self.translate_batch(
                     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
                 )
+                with torch.no_grad():
+                    self.model.decoder.init_state(src, memory_bank, enc_states)
+                batch_bl_data = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t, bl=True
+                )
 
-                batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder,
+                batch_sents, golden_truth = self.ids2sents(batch_bl_data, xlation_builder,
                                                            all_predictions, all_entropy, all_pos_predictions,
                                                            all_pos_entropy,
                                                            cnt_high, cnt_line)
+
+                baseline, _ = self.ids2sents(batch_data, xlation_builder,
+                                             all_predictions, all_entropy, all_pos_predictions,
+                                             all_pos_entropy,
+                                             cnt_high, cnt_line)
                 # preds = [x.tolist() for x in batch_data["predictions"]]
                 # golden_truth = batch.tgt[1][0]
-                reward = cal_reward(batch_sents, golden_truth)
-                loss = -torch.sum(reward["sum_bleu"] * logits)
-                print(step, loss.item(), reward["bleu"])
+                reward_qs = cal_reward(batch_sents, golden_truth)
+                reward_bl = cal_reward(baseline, golden_truth)
+                reward = self.norm(reward_qs["sum_bleu"] - reward_bl["sum_bleu"])
+                loss = -torch.sum(reward * logits / batch_size)
+                print("step", step)
+                print("loss", loss.item())
+                print("qs bleu:", reward_qs["bleu"])
+                print("bl bleu:", reward_bl["bleu"])
 
                 loss.backward()
                 self.optim.step()
@@ -530,8 +546,13 @@ class Translator(object):
         return all_scores, all_predictions
 
     def tid2t(self, t_ids):
+        return t_ids + 0.001
         t = (t_ids.float() + 1) / 10
         return t
+
+    def norm(self, reward):
+
+        return reward
 
     def _translate_random_sampling(
             self,
@@ -539,7 +560,7 @@ class Translator(object):
             src_vocabs,
             max_length,
             # yida RL translate
-            memory_bank, src_lengths, enc_states, src, learned_t,
+            memory_bank, src_lengths, enc_states, src, learned_t, bl,
             #
             min_length=0,
             sampling_temp=1.0,
@@ -609,7 +630,7 @@ class Translator(object):
             )
 
             # yida tranlate
-            random_sampler.advance(log_probs, attn, pos_log_probs)
+            random_sampler.advance(log_probs, attn, pos_log_probs, bl)
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
                 random_sampler.update_finished()
@@ -646,7 +667,7 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t):
+                        memory_bank, src_lengths, enc_states, src, learned_t, bl=False):
         """Translate a batch of sentences."""
         with torch.no_grad():
             if self.beam_size == 1:
@@ -655,7 +676,7 @@ class Translator(object):
                     src_vocabs,
                     self.max_length,
                     # yida RL translate
-                    memory_bank, src_lengths, enc_states, src, learned_t,
+                    memory_bank, src_lengths, enc_states, src, learned_t, bl,
                     #
                     min_length=self.min_length,
                     sampling_temp=self.random_sampling_temp,

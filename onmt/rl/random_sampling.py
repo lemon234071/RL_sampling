@@ -67,7 +67,7 @@ def freq_guide(logits, pos_logits, learned_t, mask=True):
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 0.1 + (~high).float() * learned_t
+    numerator = high.float() * 1 + (~high).float() * learned_t
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
@@ -253,7 +253,7 @@ class RandomSampling(DecodeStrategy):
         self.learned_t = learned_t
 
     # yida translate
-    def advance(self, log_probs, attn, pos_log_probs):
+    def advance(self, log_probs, attn, pos_log_probs, bl):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -281,7 +281,7 @@ class RandomSampling(DecodeStrategy):
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         # yida translate
-        dynamic = True
+        dynamic = not bl
         if not (dynamic and self.pos_gen):
             topk_ids, self.topk_scores = sample_with_temperature(
                 log_probs, self.sampling_temp, self.keep_topk)
