@@ -305,7 +305,7 @@ class Translator(object):
             batch_type="sents",
             attn_debug=False,
             phrase_table="",
-            valid_steps=500):
+            valid_steps=100):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -378,7 +378,7 @@ class Translator(object):
         epochs = 100
         for epoch in range(epochs):
             for batch in data_iter:
-                # step = self.optim.training_step
+                step = self.optim.training_step
                 step = 1
 
                 self._gradient_accumulation(batch, data, xlation_builder)
@@ -451,7 +451,7 @@ class Translator(object):
         reward = reward_qs["sum_bleu"] - reward_bl["sum_bleu"]
 
         loss = reward * loss_t
-        if self.optim.training_step % 100 == 0:
+        if self.optim.training_step % 10 == 0:
             print("step", self.optim.training_step)
             print(learned_t[:5].squeeze())
             print("rate:", sum(learned_t.gt(0.7)).item())
@@ -460,6 +460,58 @@ class Translator(object):
             print("qs bleu:", reward_qs["bleu"])
             print("bl bleu:", reward_bl["bleu"])
         return loss
+
+    def tid2t(self, t_ids):
+        # return t_ids + 0.001
+        t = (t_ids.float() + 1) / 10
+        return t
+
+    def validate(self, valid_iter, data, xlation_builder):
+        loss_total = 0.0
+        step = 0
+        all_predictions = []
+        golden = []
+
+        self.rl_model.eval()
+        with torch.no_grad():
+            for batch in valid_iter:
+                src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+                self.model.decoder.init_state(src, memory_bank, enc_states)
+                input = enc_states.transpose(0, 1)
+                input = input.contiguous().view(input.size(0), -1)
+
+                # F-prop through the model.
+                logits_t = self.rl_model(input)
+
+                topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+                learned_t = self.tid2t(topk_ids)
+                print(learned_t[:5].squeeze())
+                print("valid rate:", sum(learned_t.gt(0.7)).item())
+
+                loss_t = self.criterion(logits_t, topk_ids.view(-1))
+
+                # infer samples
+                attn_debug = False
+                batch_data = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
+                )
+
+                # translate, so slow
+                batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+
+                # cal rewards
+                all_predictions += batch_sents
+                golden += golden_truth
+
+                loss = loss_t
+
+                loss_total += loss
+                step += 1
+
+        self.rl_model.train()
+        reward_qs = cal_reward(all_predictions, golden)
+        print("valid loss:", loss_total / step)
+        print("valid bleu:", reward_qs["bleu"])
 
     def ids2sents(
             self,
@@ -545,59 +597,6 @@ class Translator(object):
             #     else:
             #         os.write(1, output.encode('utf-8'))
         return batch_predictions, batch_gt
-
-
-    def tid2t(self, t_ids):
-        # return t_ids + 0.001
-        t = (t_ids.float() + 1) / 10
-        return t
-
-    def validate(self, valid_iter, data, xlation_builder):
-        loss_total = 0.0
-        step = 0
-        all_predictions = []
-        golden = []
-
-        self.rl_model.eval()
-        with torch.no_grad():
-            for batch in valid_iter:
-                src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
-                self.model.decoder.init_state(src, memory_bank, enc_states)
-                input = enc_states.transpose(0, 1)
-                input = input.contiguous().view(input.size(0), -1)
-
-                # F-prop through the model.
-                logits_t = self.rl_model(input)
-
-                topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-                learned_t = self.tid2t(topk_ids)
-                print(learned_t[:5].squeeze())
-                print("valid rate:", sum(learned_t.gt(0.7)).item())
-
-                loss_t = self.criterion(logits_t, topk_ids.view(-1))
-
-                # infer samples
-                attn_debug = False
-                batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
-                )
-
-                # translate, so slow
-                batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
-
-                # cal rewards
-                all_predictions += batch_sents
-                golden += golden_truth
-
-                loss = loss_t
-
-                loss_total += loss
-                step += 1
-
-        self.rl_model.train()
-        reward_qs = cal_reward(all_predictions, golden)
-        print("valid loss:", loss_total / step)
-        print("valid bleu:", reward_qs["bleu"])
 
     def _translate_random_sampling(
             self,
