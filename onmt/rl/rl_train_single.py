@@ -90,6 +90,7 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     # _check_save_model_path(opt)
 
     # Build optimizer.
+    # optim = torch.optim.Adam(rl_model.parameters())
     optim = Optimizer.from_opt(rl_model, opt, checkpoint=checkpoint)
 
     # Build model saver

@@ -139,7 +139,6 @@ class Translator(object):
             logger=None,
             seed=-1):
         self.model = model
-        self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.fields = fields
         tgt_field = dict(self.fields)["tgt"].base_field
         self._tgt_vocab = tgt_field.vocab
@@ -205,6 +204,12 @@ class Translator(object):
                 "beam_parent_ids": [],
                 "scores": [],
                 "log_probs": []}
+
+        # for rl
+        self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
+        self.criterion = torch.nn.NLLLoss(reduction='sum')
+        self.rl_model.train()
+        self.model.eval()
 
         set_random_seed(seed, self._use_cuda)
 
@@ -289,13 +294,166 @@ class Translator(object):
             gs = [0] * batch_size
         return gs
 
+    def rltrain(
+            self,
+            src,
+            # yida translate
+            pos_src,
+            tgt=None,
+            src_dir=None,
+            batch_size=None,
+            batch_type="sents",
+            attn_debug=False,
+            phrase_table="",
+            valid_steps=5000):
+        """Translate content of ``src`` and get gold scores from ``tgt``.
+
+        Args:
+            src: See :func:`self.src_reader.read()`.
+            tgt: See :func:`self.tgt_reader.read()`.
+            src_dir: See :func:`self.src_reader.read()` (only relevant
+                for certain types of data).
+            batch_size (int): size of examples per mini-batch
+            attn_debug (bool): enables the attention logging
+
+        Returns:
+            (`list`, `list`)
+
+            * all_scores is a list of `batch_size` lists of `n_best` scores
+            * all_predictions is a list of `batch_size` lists
+                of `n_best` predictions
+        """
+
+        if batch_size is None:
+            raise ValueError("batch_size must be set")
+
+        data = inputters.Dataset(
+            self.fields,
+            # yida translate
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
+                     if tgt else [self.src_reader, self.tgt_reader]),
+            data=[("src", src), ("tgt", tgt), ("pos_src", pos_src)] if tgt else [("src", src), ("pos_src", pos_src)],
+            dirs=[src_dir, None, None] if tgt else [src_dir, None],
+            sort_key=inputters.str2sortkey[self.data_type],
+            filter_pred=self._filter_pred
+        )
+
+        data_iter = inputters.OrderedIterator(
+            dataset=data,
+            device=self._dev,
+            batch_size=batch_size,
+            batch_size_fn=max_tok_len if batch_type == "tokens" else None,
+            train=False,
+            sort=False,
+            sort_within_batch=True,
+            shuffle=False
+        )
+
+        xlation_builder = onmt.rl.TranslationBuilder(
+            data, self.fields, self.n_best, self.replace_unk, False,
+            self.phrase_table
+        )
+
+        # # Statistics
+        counter = count(1)
+        pred_score_total, pred_words_total = 0, 0
+        gold_score_total, gold_words_total = 0, 0
+
+        all_scores = []
+        all_predictions = []
+
+        start_time = time.time()
+
+        epochs = 100
+        for epoch in range(epochs):
+            for batch in data_iter:
+                # step = self.optim.training_step
+                step = 1
+
+                self._gradient_accumulation(batch, data, xlation_builder)
+
+                if step % valid_steps == 0:
+                    self.validate()
+
+        end_time = time.time()
+
+        if self.report_time:
+            total_time = end_time - start_time
+            self._log("Total translation time (s): %f" % total_time)
+            self._log("Average translation time (s): %f" % (
+                    total_time / len(all_predictions)))
+            self._log("Tokens per second: %f" % (
+                    pred_words_total / total_time))
+
+        return all_scores, all_predictions
+
+    def _gradient_accumulation(self, batch, data, xlation_builder):
+        # Encoder forward.
+        with torch.no_grad():
+            src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+
+        self.optim.zero_grad()
+
+        # prepare input
+        input = enc_states.transpose(0, 1)
+        input = input.contiguous().view(input.size(0), -1)
+        logits_t = self.rl_model(input)
+
+        # compute loss
+        loss = self._compute_loss(logits_t, batch, data, xlation_builder,
+                                  src, enc_states, memory_bank, src_lengths)
+        # loss.backward()
+        if loss is not None:
+            self.optim.backward(loss)
+        self.optim.step()
+
+    def _compute_loss(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
+        # topk_scores, topk_ids = logits.topk(1, dim=-1) # sample k t, cal reward , average as bl
+        dist = torch.distributions.Multinomial(
+            logits=logits_t, total_count=1)
+        topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+        learned_t = self.tid2t(topk_ids)
+        print(learned_t[:5].squeeze())
+        print("rate:", sum(learned_t.gt(0.7)).item())
+
+        loss_t = self.criterion(logits_t, topk_ids.view(-1))
+
+        # infer samples
+        attn_debug = False
+        batch_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
+        )
+        # infer baseline
+        with torch.no_grad():
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+        batch_bl_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t, bl=True
+        )
+
+        # translate
+        batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+        baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
+
+        # cal rewards
+        reward_qs = cal_reward(batch_sents, golden_truth)
+        reward_bl = cal_reward(baseline, golden_truth)
+
+        # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
+        reward = reward_qs["sum_bleu"] - reward_bl["sum_bleu"]
+        print("reward", reward)
+
+        loss = reward * loss_t
+        print("step", self.optim.training_step)
+        print("loss", loss_t.item())
+        print("qs bleu:", reward_qs["bleu"])
+        print("bl bleu:", reward_bl["bleu"])
+        return loss
+
     def ids2sents(
             self,
             batch_data,
-            xlation_builder,
-            all_predictions, all_entropy,
-            all_pos_predictions, all_pos_entropy,
-            cnt_high, cnt_line):
+            xlation_builder):
         """
 
         :param batch_data:
@@ -321,13 +479,13 @@ class Translator(object):
 
             n_best_preds = [" ".join(pred)
                             for pred in trans.pred_sents[:self.n_best]]
-            all_predictions += [n_best_preds]
+            # all_predictions += [n_best_preds]
             batch_predictions += [n_best_preds]
             batch_gt += [trans.tgt_raw]
             # self.out_file.write('\n'.join(n_best_preds) + '\n')
             # self.out_file.flush()
             # yida translate
-            all_entropy += [trans.entropy_sents.tolist()]
+            # all_entropy += [trans.entropy_sents.tolist()]
             # if self.model.pos_generator is not None:
             #     n_best_pos_preds = [" ".join(pos_pred)
             #                         for pos_pred in trans.pos_pred_sents[:self.n_best]]
@@ -377,182 +535,14 @@ class Translator(object):
             #         os.write(1, output.encode('utf-8'))
         return batch_predictions, batch_gt
 
-    def rltrain(
-            self,
-            src,
-            # yida translate
-            pos_src,
-            tgt=None,
-            src_dir=None,
-            batch_size=None,
-            batch_type="sents",
-            attn_debug=False,
-            phrase_table=""):
-        """Translate content of ``src`` and get gold scores from ``tgt``.
-
-        Args:
-            src: See :func:`self.src_reader.read()`.
-            tgt: See :func:`self.tgt_reader.read()`.
-            src_dir: See :func:`self.src_reader.read()` (only relevant
-                for certain types of data).
-            batch_size (int): size of examples per mini-batch
-            attn_debug (bool): enables the attention logging
-
-        Returns:
-            (`list`, `list`)
-
-            * all_scores is a list of `batch_size` lists of `n_best` scores
-            * all_predictions is a list of `batch_size` lists
-                of `n_best` predictions
-        """
-
-        if batch_size is None:
-            raise ValueError("batch_size must be set")
-
-        data = inputters.Dataset(
-            self.fields,
-            # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
-                     if tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", src), ("tgt", tgt), ("pos_src", pos_src)] if tgt else [("src", src), ("pos_src", pos_src)],
-            dirs=[src_dir, None, None] if tgt else [src_dir, None],
-            sort_key=inputters.str2sortkey[self.data_type],
-            filter_pred=self._filter_pred
-        )
-
-        data_iter = inputters.OrderedIterator(
-            dataset=data,
-            device=self._dev,
-            batch_size=batch_size,
-            batch_size_fn=max_tok_len if batch_type == "tokens" else None,
-            train=False,
-            sort=False,
-            sort_within_batch=True,
-            shuffle=False
-        )
-
-        xlation_builder = onmt.rl.TranslationBuilder(
-            data, self.fields, self.n_best, self.replace_unk, False,
-            self.phrase_table
-        )
-
-        # Statistics
-        counter = count(1)
-        pred_score_total, pred_words_total = 0, 0
-        gold_score_total, gold_words_total = 0, 0
-
-        all_scores = []
-        all_predictions = []
-        # yida translate
-        all_entropy = []
-        all_pos_predictions = []
-        all_pos_entropy = []
-        cnt_high = 0
-        cnt_line = 0
-
-        start_time = time.time()
-
-        self.rl_model.train()
-        self.model.eval()
-
-        epochs = 100
-        for epoch in range(epochs):
-            for batch in data_iter:
-                step = self.optim.training_step
-                # Encoder forward.
-                with torch.no_grad():
-                    src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
-                    self.model.decoder.init_state(src, memory_bank, enc_states)
-
-                self.optim.zero_grad()
-
-                input = enc_states.transpose(0, 1)
-                input = input.contiguous().view(input.size(0), -1)
-                logits = self.rl_model(input)
-                topk_scores, topk_ids = logits.topk(1, dim=-1)
-                learned_t = self.tid2t(topk_ids)
-                print(learned_t[:5].squeeze())
-                print("rate:", sum(learned_t.gt(1)).item())
-
-                batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
-                )
-                with torch.no_grad():
-                    self.model.decoder.init_state(src, memory_bank, enc_states)
-                batch_bl_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t, bl=True
-                )
-
-                batch_sents, golden_truth = self.ids2sents(batch_bl_data, xlation_builder,
-                                                           all_predictions, all_entropy, all_pos_predictions,
-                                                           all_pos_entropy,
-                                                           cnt_high, cnt_line)
-
-                baseline, _ = self.ids2sents(batch_data, xlation_builder,
-                                             all_predictions, all_entropy, all_pos_predictions,
-                                             all_pos_entropy,
-                                             cnt_high, cnt_line)
-                # preds = [x.tolist() for x in batch_data["predictions"]]
-                # golden_truth = batch.tgt[1][0]
-                reward_qs = cal_reward(batch_sents, golden_truth)
-                reward_bl = cal_reward(baseline, golden_truth)
-                reward = self.norm(reward_qs["sum_bleu"] - reward_bl["sum_bleu"])
-                loss = -torch.sum(reward * logits / batch_size)
-                print("step", step)
-                print("loss", loss.item())
-                print("qs bleu:", reward_qs["bleu"])
-                print("bl bleu:", reward_bl["bleu"])
-
-                loss.backward()
-                self.optim.step()
-
-                # if step % 1000 == 0:
-                #     self.rl_model.eval()
-                #     with torch.no_grad:
-                #         print(1)
-
-        end_time = time.time()
-
-        # yida translate
-        print(cnt_high / cnt_line)
-
-        # if self.report_score:
-        #     msg = self._report_score('PRED', pred_score_total,
-        #                              pred_words_total)
-        #     self._log(msg)
-        #     if tgt is not None:
-        #         msg = self._report_score('GOLD', gold_score_total,
-        #                                  gold_words_total)
-        #         self._log(msg)
-        #         if self.report_bleu:
-        #             msg = self._report_bleu(tgt)
-        #             self._log(msg)
-        #         if self.report_rouge:
-        #             msg = self._report_rouge(tgt)
-        #             self._log(msg)
-
-        if self.report_time:
-            total_time = end_time - start_time
-            self._log("Total translation time (s): %f" % total_time)
-            self._log("Average translation time (s): %f" % (
-                    total_time / len(all_predictions)))
-            self._log("Tokens per second: %f" % (
-                    pred_words_total / total_time))
-
-        # if self.dump_beam:
-        #     import json
-        #     json.dump(self.translator.beam_accum,
-        #               codecs.open(self.dump_beam, 'w', 'utf-8'))
-        return all_scores, all_predictions
 
     def tid2t(self, t_ids):
-        return t_ids + 0.001
+        # return t_ids + 0.001
         t = (t_ids.float() + 1) / 10
         return t
 
-    def norm(self, reward):
-
-        return reward
+    def validate(self):
+        print(1)
 
     def _translate_random_sampling(
             self,
