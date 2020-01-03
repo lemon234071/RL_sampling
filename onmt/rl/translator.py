@@ -379,7 +379,6 @@ class Translator(object):
         for epoch in range(epochs):
             for batch in data_iter:
                 step = self.optim.training_step
-                step = 1
 
                 self._gradient_accumulation(batch, data, xlation_builder)
 
