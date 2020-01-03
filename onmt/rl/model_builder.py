@@ -169,7 +169,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # Build Generator.
     gen_func = nn.LogSoftmax(dim=-1)
     generator = nn.Sequential(
-        nn.Linear(model_opt.enc_rnn_size * 2,
+        nn.Linear(model_opt.enc_rnn_size,
                   20),  # len(fields["tgt"].base_field.vocab)
         Cast(torch.float32),
         gen_func
