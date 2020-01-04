@@ -9,6 +9,7 @@ import time
 from itertools import count
 
 import torch
+from tensorboardX import SummaryWriter
 
 import onmt.decoders.ensemble
 import onmt.inputters as inputters
@@ -206,6 +207,7 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
+        self.writer = SummaryWriter('./log')
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='sum')
         self.rl_model.train()
@@ -452,14 +454,19 @@ class Translator(object):
         reward = reward_qs["sum_bleu"] - reward_bl["sum_bleu"]
 
         loss = reward * loss_t
-        if self.optim.training_step % 10 == 0:
+
+        self.writer.add_scalars(
+            "train_loss&&reward",
+            {"train_loss": loss.data.item(), "train_reward": reward},
+            self.optim.training_step)
+        if self.optim.training_step % 20 == 0:
             print("step", self.optim.training_step)
             print(learned_t[:5].squeeze())
-            print("rate:", sum(learned_t.gt(0.7)).item())
-            print("reward", reward)
-            print("loss", loss_t.item())
-            print("qs bleu:", reward_qs["bleu"])
-            print("bl bleu:", reward_bl["bleu"])
+            print("     rate:", sum(learned_t.gt(0.7)).item())
+            print("         reward", reward)
+            print("             loss", loss_t.item())
+            print("                 qs bleu:", reward_qs["bleu"])
+            print("                 bl bleu:", reward_bl["bleu"])
         return loss
 
     def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths, k=3):
@@ -472,31 +479,33 @@ class Translator(object):
         k_logits_t = torch.stack([logits_t] * 3, 0)
         loss_t = self.criterion(k_logits_t, k_topk_ids.view(-1))
 
-        # infer samples
+        # infer samples(slow or not
         attn_debug = False
+        k_reward_qs = []
         for i in range(k):
             batch_data = self.translate_batch(
-                batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
+                batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[i]
             )
 
             # translate, so slow
             batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
 
             # cal rewards
-            reward_qs = cal_reward(batch_sents, golden_truth)
+            k_reward_qs.append(cal_reward(batch_sents, golden_truth)["sum_bleu"])
 
         # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
-        reward = reward_qs["sum_bleu"] - reward_bl["sum_bleu"]
+        reward_bl = sum(k_reward_qs) / len(k_reward_qs)
+        reward = torch.tensor(k_reward_qs) - reward_bl
 
         loss = reward * loss_t
         if self.optim.training_step % 10 == 0:
             print("step", self.optim.training_step)
-            print(learned_t[:5].squeeze())
-            print("rate:", sum(learned_t.gt(0.7)).item())
+            print(k_learned_t[..., :5].squeeze())
+            print("rate:", sum(k_learned_t.gt(0.7)).item())
             print("reward", reward)
             print("loss", loss_t.item())
-            print("qs bleu:", reward_qs["bleu"])
-            print("bl bleu:", reward_bl["bleu"])
+            print("qs bleu:", k_reward_qs)
+            print("bl bleu:", reward_bl)
         return loss
 
     def tid2t(self, t_ids):
@@ -547,10 +556,14 @@ class Translator(object):
 
         self.rl_model.train()
         print(learned_t[:5].squeeze())
-        print("valid rate:", sum(learned_t.gt(0.7)).item())
+        print(" valid rate:", sum(learned_t.gt(0.7)).item())
         reward_qs = cal_reward(all_predictions, golden)
-        print("valid loss:", loss_total / step)
-        print("valid bleu:", reward_qs["bleu"])
+        print("     valid loss:", loss_total / step)
+        print("         valid bleu:", reward_qs["bleu"])
+        self.writer.add_scalars(
+            "valid_loss&&sum_bleu",
+            {"valid_loss": loss_total / step, "sum_bleu": reward_qs["sum_bleu"]},
+            self.optim.training_step)
 
     def ids2sents(
             self,
