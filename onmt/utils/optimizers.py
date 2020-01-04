@@ -1,13 +1,15 @@
 """ Optimizers class """
+import functools
+import importlib
+import operator
+import types
+from copy import copy
+from math import sqrt
+
 import torch
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
-import operator
-import functools
-from copy import copy
-from math import sqrt
-import types
-import importlib
+
 from onmt.utils.misc import fn_args
 
 
@@ -336,6 +338,8 @@ class Optimizer(object):
             if "update_master_grads" in fn_args(self._optimizer.backward):
                 kwargs["update_master_grads"] = True
             self._optimizer.backward(loss, **kwargs)
+        elif loss.shape:
+            loss.backward(torch.ones_like(loss))
         else:
             loss.backward()
 

@@ -209,7 +209,7 @@ class Translator(object):
         # for rl
         self.writer = SummaryWriter('./tb_log')
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
-        self.criterion = torch.nn.NLLLoss(reduction='sum')
+        self.criterion = torch.nn.NLLLoss(reduction='none')
         self.rl_model.train()
         self.model.eval()
 
@@ -377,7 +377,7 @@ class Translator(object):
 
         start_time = time.time()
 
-        epochs = 100
+        epochs = 25
         for epoch in range(epochs):
             for batch in data_iter:
                 step = self.optim.training_step
@@ -413,8 +413,8 @@ class Translator(object):
         logits_t = self.rl_model(input)
 
         # compute loss
-        loss = self._compute_loss(logits_t, batch, data, xlation_builder,
-                                  src, enc_states, memory_bank, src_lengths)
+        loss = self._compute_loss_k(logits_t, batch, data, xlation_builder,
+                                    src, enc_states, memory_bank, src_lengths)
         # loss.backward()
         if loss is not None:
             self.optim.backward(loss)
@@ -469,20 +469,24 @@ class Translator(object):
             print("                 bl bleu:", reward_bl["bleu"])
         return loss
 
-    def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths, k=3):
+    def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths, k=4):
         # topk_scores, topk_ids = logits.topk(1, dim=-1) # sample k t, cal reward , average as bl
         dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
         k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(k)]
-        k_topk_ids = torch.stack(k_topk_ids, 0)
         k_learned_t = self.tid2t(k_topk_ids)
+        k_topk_ids = torch.stack(k_topk_ids, -1)
+        # k_topk_ids = torch.cat(k_topk_ids, 0)
 
-        k_logits_t = torch.stack([logits_t] * 3, 0)
-        loss_t = self.criterion(k_logits_t, k_topk_ids.view(-1))
+        k_logits_t = torch.stack([logits_t] * k, -1)
+        # k_logits_t = torch.cat([logits_t] * k, 0)
+        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).sum(0)
 
         # infer samples(slow or not
         attn_debug = False
         k_reward_qs = []
         for i in range(k):
+            with torch.no_grad():
+                self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[i]
             )
@@ -495,22 +499,27 @@ class Translator(object):
 
         # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
         reward_bl = sum(k_reward_qs) / len(k_reward_qs)
-        reward = torch.tensor(k_reward_qs) - reward_bl
+        reward = torch.tensor(k_reward_qs).cuda() - reward_bl
 
         loss = reward * loss_t
+
+        self.writer.add_scalars(
+            "train_k_log",
+            {"train_loss_mean": loss.mean().item(), "train_reward_mean": reward.mean().item()},
+            self.optim.training_step)
         if self.optim.training_step % 10 == 0:
+            print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)
-            print(k_learned_t[..., :5].squeeze())
-            print("rate:", sum(k_learned_t.gt(0.7)).item())
-            print("reward", reward)
-            print("loss", loss_t.item())
-            print("qs bleu:", k_reward_qs)
-            print("bl bleu:", reward_bl)
+            print(" rate:", torch.sum(k_learned_t.gt(0.7), 1).tolist())
+            print("     reward", reward)
+            print("         loss", loss_t.mean().item())
+            print("             qs bleu:", k_reward_qs)
+            print("             bl bleu:", reward_bl)
         return loss
 
     def tid2t(self, t_ids):
         # return t_ids.float() + 0.001
-        t = (t_ids.float() + 1) / 10
+        t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
 
     def validate(self, valid_iter, data, xlation_builder):
@@ -532,14 +541,14 @@ class Translator(object):
                 logits_t = self.rl_model(input)
 
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-                learned_t = self.tid2t(topk_ids)
+                learned_t = self.tid2t([topk_ids])
 
                 loss_t = self.criterion(logits_t, topk_ids.view(-1))
 
                 # infer samples
                 attn_debug = False
                 batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t[0]
                 )
 
                 # translate, so slow
@@ -549,19 +558,19 @@ class Translator(object):
                 all_predictions += batch_sents
                 golden += golden_truth
 
-                loss = loss_t
+                loss = loss_t.sum()
 
                 loss_total += loss
                 step += 1
 
         self.rl_model.train()
-        print(learned_t[:5].squeeze())
-        print(" valid rate:", sum(learned_t.gt(0.7)).item())
+        print(learned_t[0][:5].squeeze())
+        print(" valid rate:", sum(learned_t[0].gt(0.7)).item())
         reward_qs = cal_reward(all_predictions, golden)
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs["bleu"])
         self.writer.add_scalars(
-            "valid_log",
+            "valid_k_log",
             {"valid_loss": loss_total / step, "sum_bleu": reward_qs["sum_bleu"]},
             self.optim.training_step)
 
