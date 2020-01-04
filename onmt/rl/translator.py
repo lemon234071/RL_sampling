@@ -456,7 +456,7 @@ class Translator(object):
         loss = reward * loss_t
 
         self.writer.add_scalars(
-            "train_loss&&reward",
+            "train_log",
             {"train_loss": loss.data.item(), "train_reward": reward},
             self.optim.training_step)
         if self.optim.training_step % 20 == 0:
@@ -561,7 +561,7 @@ class Translator(object):
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs["bleu"])
         self.writer.add_scalars(
-            "valid_loss&&sum_bleu",
+            "valid_log",
             {"valid_loss": loss_total / step, "sum_bleu": reward_qs["sum_bleu"]},
             self.optim.training_step)
 
