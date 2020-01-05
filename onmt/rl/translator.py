@@ -455,7 +455,7 @@ class Translator(object):
 
         loss = reward * loss_t
 
-        self.writer.add_scalars("train_loss", {"loss": loss.data.item()}, self.optim.training_step)
+        self.writer.add_scalars("train_loss", {"loss": loss_t.data.item()}, self.optim.training_step)
         self.writer.add_scalars("train_reward", {"reward": reward}, self.optim.training_step)
         if self.optim.training_step % 20 == 0:
             print("step", self.optim.training_step)
@@ -501,8 +501,9 @@ class Translator(object):
 
         loss = reward * loss_t
 
-        self.writer.add_scalars("train_k_loss", {"loss_mean": loss.mean().item()}, self.optim.training_step)
+        self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
         self.writer.add_scalars("train_k_reward", {"reward_mean": reward.mean().item()}, self.optim.training_step)
+        self.writer.add_scalars("sum_bleu", {"sum_bleu_mean": reward_bl}, self.optim.training_step)
         if self.optim.training_step % 10 == 0:
             print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)

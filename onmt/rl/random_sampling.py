@@ -67,7 +67,7 @@ def freq_guide(logits, pos_logits, learned_t, mask=True):
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 0.1 + (~high).float() * learned_t
+    numerator = high.float() * learned_t + (~high).float() * 1
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
