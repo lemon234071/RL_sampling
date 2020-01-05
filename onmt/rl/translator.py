@@ -455,10 +455,8 @@ class Translator(object):
 
         loss = reward * loss_t
 
-        self.writer.add_scalars(
-            "train_log",
-            {"train_loss": loss.data.item(), "train_reward": reward},
-            self.optim.training_step)
+        self.writer.add_scalars("train_loss", {"loss": loss.data.item()}, self.optim.training_step)
+        self.writer.add_scalars("train_reward", {"reward": reward}, self.optim.training_step)
         if self.optim.training_step % 20 == 0:
             print("step", self.optim.training_step)
             print(learned_t[:5].squeeze())
@@ -503,10 +501,8 @@ class Translator(object):
 
         loss = reward * loss_t
 
-        self.writer.add_scalars(
-            "train_k_log",
-            {"train_loss_mean": loss.mean().item(), "train_reward_mean": reward.mean().item()},
-            self.optim.training_step)
+        self.writer.add_scalars("train_k_loss", {"loss_mean": loss.mean().item()}, self.optim.training_step)
+        self.writer.add_scalars("train_k_reward", {"reward_mean": reward.mean().item()}, self.optim.training_step)
         if self.optim.training_step % 10 == 0:
             print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)
@@ -569,10 +565,8 @@ class Translator(object):
         reward_qs = cal_reward(all_predictions, golden)
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs["bleu"])
-        self.writer.add_scalars(
-            "valid_k_log",
-            {"valid_loss": loss_total / step, "sum_bleu": reward_qs["sum_bleu"]},
-            self.optim.training_step)
+        self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
+        self.writer.add_scalars("valid_sum_bleu", {"sum_bleu": reward_qs["sum_bleu"]}, self.optim.training_step)
 
     def ids2sents(
             self,
