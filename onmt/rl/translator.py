@@ -138,6 +138,10 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
+            epochs=10,
+            report_every=10,
+            valid_steps=100,
+            save_checkpoint_steps=200,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -207,6 +211,10 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
+        self.epochs = epochs
+        self.report_every = report_every
+        self.valid_steps = valid_steps
+        self.save_checkpoint_steps = save_checkpoint_steps
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
@@ -298,16 +306,15 @@ class Translator(object):
 
     def rltrain(
             self,
-            src,
-            # yida translate
-            pos_src,
-            tgt=None,
+            train_src,
+            train_tgt,
+            valid_src,
+            valid_tgt,
             src_dir=None,
             batch_size=None,
             batch_type="sents",
             attn_debug=False,
-            phrase_table="",
-            valid_steps=50):
+            phrase_table=""):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -329,41 +336,55 @@ class Translator(object):
         if batch_size is None:
             raise ValueError("batch_size must be set")
 
-        data = inputters.Dataset(
+        train_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
-                     if tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", src), ("tgt", tgt), ("pos_src", pos_src)] if tgt else [("src", src), ("pos_src", pos_src)],
-            dirs=[src_dir, None, None] if tgt else [src_dir, None],
+            readers=([self.src_reader, self.tgt_reader]),
+            data=[("src", train_src), ("tgt", train_tgt)],
+            dirs=[src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
 
-        data_iter = inputters.OrderedIterator(
-            dataset=data,
+        train_iter = inputters.OrderedIterator(
+            dataset=train_data,
             device=self._dev,
             batch_size=batch_size,
+            pool_factor=8192,
             batch_size_fn=max_tok_len if batch_type == "tokens" else None,
             train=False,
             sort=False,
-            sort_within_batch=True,
-            shuffle=False
+            sort_within_batch=True
+        )
+
+        valid_data = inputters.Dataset(
+            self.fields,
+            # yida translate
+            readers=([self.src_reader, self.tgt_reader]),
+            data=[("src", valid_src), ("tgt", valid_tgt)],
+            dirs=[src_dir, None],
+            sort_key=inputters.str2sortkey[self.data_type],
+            filter_pred=self._filter_pred
         )
 
         valid_iter = inputters.OrderedIterator(
-            dataset=data,
+            dataset=valid_data,
             device=self._dev,
             batch_size=batch_size,
+            pool_factor=8192,
             batch_size_fn=max_tok_len if batch_type == "tokens" else None,
             train=False,
             sort=False,
-            sort_within_batch=True,
-            shuffle=False
+            sort_within_batch=True
         )
 
-        xlation_builder = onmt.rl.TranslationBuilder(
-            data, self.fields, self.n_best, self.replace_unk, False,
+        train_xlation_builder = onmt.rl.TranslationBuilder(
+            train_data, self.fields, self.n_best, self.replace_unk, False,
+            self.phrase_table
+        )
+
+        valid_xlation_builder = onmt.rl.TranslationBuilder(
+            valid_data, self.fields, self.n_best, self.replace_unk, False,
             self.phrase_table
         )
 
@@ -377,15 +398,21 @@ class Translator(object):
 
         start_time = time.time()
 
-        epochs = 25
-        for epoch in range(epochs):
-            for batch in data_iter:
+        for epoch in range(self.epochs):
+            for batch in train_iter:
                 step = self.optim.training_step
 
-                self._gradient_accumulation(batch, data, xlation_builder)
+                self._gradient_accumulation(batch, train_data, train_xlation_builder)
 
-                if step % valid_steps == 0:
-                    self.validate(valid_iter, data, xlation_builder)
+                if step % self.valid_steps == 0:
+                    self.validate(valid_iter, valid_data, valid_xlation_builder)
+
+                if (self.model_saver is not None
+                        and (self.save_checkpoint_steps != 0
+                             and step % self.save_checkpoint_steps == 0)):
+                    self.model_saver.save(step, moving_average=None)
+        if self.model_saver is not None:
+            self.model_saver.save(step, moving_average=None)
 
         end_time = time.time()
 
@@ -457,7 +484,7 @@ class Translator(object):
 
         self.writer.add_scalars("train_loss", {"loss": loss_t.data.item()}, self.optim.training_step)
         self.writer.add_scalars("train_reward", {"reward": reward}, self.optim.training_step)
-        if self.optim.training_step % 20 == 0:
+        if self.optim.training_step % self.report_every == 0:
             print("step", self.optim.training_step)
             print(learned_t[:5].squeeze())
             print("     rate:", sum(learned_t.gt(0.7)).item())
@@ -504,7 +531,7 @@ class Translator(object):
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
         self.writer.add_scalars("train_k_reward", {"reward_mean": reward.mean().item()}, self.optim.training_step)
         self.writer.add_scalars("sum_bleu", {"sum_bleu_mean": reward_bl}, self.optim.training_step)
-        if self.optim.training_step % 10 == 0:
+        if self.optim.training_step % self.report_every == 0:
             print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)
             print(" rate:", torch.sum(k_learned_t.gt(0.7), 1).tolist())
@@ -797,7 +824,7 @@ class Translator(object):
             else (batch.src, None)
 
         # yida translate
-        if self.model.pos_generator is not None:
+        if self.model.pos_enc:
             pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
         else:
             pos_src = None

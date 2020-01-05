@@ -117,3 +117,4 @@ log_dir/
 result/
 data*/
 tool_data/
+rl_checkpoint/

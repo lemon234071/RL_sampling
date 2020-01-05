@@ -1,29 +1,26 @@
 # -*- coding: utf-8 -*-
-import glob
-import os
 import codecs
+import gc
+import glob
 import math
-
+import os
 from collections import Counter, defaultdict
 from itertools import chain, cycle
 
 import torch
 import torchtext.data
 from torchtext.data import Field, RawField
-from torchtext.vocab import Vocab
 from torchtext.data.utils import RandomShuffler
+from torchtext.vocab import Vocab
 
-from onmt.inputters.text_dataset import text_fields, TextMultiField
-from onmt.inputters.image_dataset import image_fields
 from onmt.inputters.audio_dataset import audio_fields
+from onmt.inputters.image_dataset import image_fields
+from onmt.inputters.text_dataset import text_fields, TextMultiField
 from onmt.inputters.vec_dataset import vec_fields
 from onmt.utils.logging import logger
-# backwards compatibility
-from onmt.inputters.text_dataset import _feature_tokenize  # noqa: F401
-from onmt.inputters.image_dataset import (  # noqa: F401
-    batch_img as make_img)
 
-import gc
+
+# backwards compatibility
 
 
 # monkey-patch to make torchtext Vocab's pickleable
@@ -813,7 +810,7 @@ def max_tok_len(new, count, sofar):
     return max(src_elements, tgt_elements)
 
 
-def build_dataset_iter(corpus_type, fields, opt, is_train=True, multi=False):
+def build_dataset_iter(corpus_type, fields, opt, is_train=True, multi=False, rl=False):
     """
     This returns user-defined train/validate data iterator for the trainer
     to iterate over. We implement simple ordered iterator strategy here,
@@ -849,7 +846,7 @@ def build_dataset_iter(corpus_type, fields, opt, is_train=True, multi=False):
         opt.pool_factor,
         repeat=not opt.single_pass,
         num_batches_multiple=max(opt.accum_count) * opt.world_size,
-        yield_raw_example=multi)
+        yield_raw_example=multi or rl)
 
 
 def build_dataset_iter_multiple(train_shards, fields, opt):

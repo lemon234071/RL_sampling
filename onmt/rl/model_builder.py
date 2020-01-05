@@ -144,19 +144,6 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     except AttributeError:
         model_opt.attention_dropout = model_opt.dropout
 
-    # Build embeddings.
-    # if model_opt.model_type == "text" or model_opt.model_type == "vec":
-    #     src_field = fields["src"]
-    #     src_emb = build_embeddings(model_opt, src_field)
-    # else:
-    #     src_emb = None
-
-    # # Build decoder.
-    # tgt_field = fields["tgt"]
-    # tgt_emb = build_embeddings(model_opt, tgt_field, for_encoder=False)
-
-    # decoder = build_decoder(model_opt, tgt_emb, pos_tgt_emb)
-
     # Build NMTModel(= encoder + decoder).
     if gpu and gpu_id is not None:
         device = torch.device("cuda", gpu_id)
@@ -164,10 +151,18 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         device = torch.device("cuda")
     elif not gpu:
         device = torch.device("cpu")
-    # model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_enc, model_opt.pos_dec)
+    #  model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_enc, model_opt.pos_dec)
+    gen_func = nn.LogSoftmax(dim=-1)
+
+    model = nn.Sequential(
+        nn.Linear(model_opt.enc_rnn_size,
+                  model_opt.enc_rnn_size),  # len(fields["tgt"].base_field.vocab)
+        Cast(torch.float32),
+        gen_func
+    )
 
     # Build Generator.
-    gen_func = nn.LogSoftmax(dim=-1)
+
     generator = nn.Sequential(
         nn.Linear(model_opt.enc_rnn_size,
                   20),  # len(fields["tgt"].base_field.vocab)
@@ -189,30 +184,24 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                                for k, v in checkpoint['model'].items()}
         # end of patch for backward compatibility
 
-        # model.load_state_dict(checkpoint['model'], strict=False)
+        model.load_state_dict(checkpoint['model'], strict=False)
         generator.load_state_dict(checkpoint['generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
-            # for p in model.parameters():
-            #     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            for p in model.parameters():
+                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             for p in generator.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
-            # for p in model.parameters():
-            #     if p.dim() > 1:
-            #         xavier_uniform_(p)
+            for p in model.parameters():
+                if p.dim() > 1:
+                    xavier_uniform_(p)
             for p in generator.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
-
-        # if hasattr(model.encoder, 'embeddings'):
-        #     model.encoder.embeddings.load_pretrained_vectors(
-        #         model_opt.pre_word_vecs_enc)
-        # if hasattr(model.decoder, 'embeddings'):
-        #     model.decoder.embeddings.load_pretrained_vectors(
-        #         model_opt.pre_word_vecs_dec)
     # yida rl
-    model = generator
+    # model = generator
+    model.generator = generator
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

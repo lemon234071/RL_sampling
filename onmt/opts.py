@@ -747,7 +747,35 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida translate
-    group.add('--pos_src', '-pos_src', required=True,
+    group.add('--reset_optim', '-reset_optim', default='none',
+              choices=['none', 'all', 'states', 'keep_states'],
+              help="Optimization resetter when train_from.")
+    group.add('--keep_checkpoint', '-keep_checkpoint', type=int, default=-1,
+              help="Keep X checkpoints (negative: keep all)")
+    group.add('--save_model', '-save_model', default='rl_checkpoint/mlp',
+              help="Model filename (the model will be saved as "
+                   "<save_model>_N.pt where N is the number "
+                   "of steps")
+    group.add('--world_size', '-world_size', default=1, type=int,
+              help="total number of distributed processes.")
+    group.add('--single_pass', '-single_pass', action='store_true',
+              help="Make a single pass over the training dataset.")
+    group.add('--pool_factor', '-pool_factor', type=int, default=8192,
+              help="""Factor used in data loading and batch creations.
+              It will load the equivalent of `pool_factor` batches,
+              sort them by the according `sort_key` to produce
+              homogeneous batches and reduce padding, and yield
+              the produced batches in a shuffled way.
+              Inspired by torchtext's pool mechanism.""")
+    group.add('--gpu_ranks', '-gpu_ranks', default=[], nargs='*', type=int,
+              help="list of ranks of each process.")
+    group.add('--valid_src', '-valid_src', required=True,
+              help="valid source sequence to decode (one line per "
+                   "sequence)")
+    group.add('--valid_tgt', '-valid_tgt', required=True,
+              help="valid response sequence to decode (one line per "
+                   "sequence)")
+    group.add('--pos_src', '-pos_src', required=False,
               help="POS source sequence to decode (one line per "
                    "sequence)")
     group.add('--data', '-data', required=False,

@@ -6,6 +6,7 @@ from itertools import repeat
 import torch
 
 from onmt.inputters.inputter import load_old_vocab, old_style_vocab
+from onmt.models import build_model_saver
 from onmt.rl.model_builder import build_model
 from onmt.rl.translator import build_rltor
 from onmt.utils.logging import logger
@@ -52,8 +53,8 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         checkpoint = torch.load(opt.train_from,
                                 map_location=lambda storage, loc: storage)
         model_opt = ArgumentParser.ckpt_model_opts(checkpoint["opt"])
-        # ArgumentParser.update_model_opts(model_opt)
-        # ArgumentParser.validate_model_opts(model_opt)
+        ArgumentParser.update_model_opts(model_opt)
+        ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
         vocab = checkpoint['vocab']
     else:
@@ -82,91 +83,39 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
 
     # Build model.
     rl_model = build_model(model_opt, opt, fields, checkpoint)
-    # n_params, enc, dec = _tally_parameters(model)
-    # logger.info('encoder: %d' % enc)
-    # logger.info('decoder: %d' % dec)
-    # logger.info('* number of parameters: %d' % n_params)
 
-    # _check_save_model_path(opt)
+    _check_save_model_path(opt)
 
     # Build optimizer.
     # optim = torch.optim.Adam(rl_model.parameters())
     optim = Optimizer.from_opt(rl_model, opt, checkpoint=checkpoint)
 
     # Build model saver
-    # model_saver = build_model_saver(model_opt, opt, rl_model, fields, optim)
-    model_saver = None
+    model_saver = build_model_saver(model_opt, opt, rl_model, fields, optim)
+    # model_saver = None
 
     # trainer = build_trainer(
     #     opt, device_id, model, fields, optim, model_saver=model_saver)
-    # RL
     rltor = build_rltor(opt, rl_model, optim, model_saver, report_score=False)
 
     src_shards = split_corpus(opt.src, opt.shard_size)
     tgt_shards = split_corpus(opt.tgt, opt.shard_size) \
         if opt.tgt is not None else repeat(None)
-    # yida RL translate
-    pos_src_shards = split_corpus(opt.pos_src, opt.shard_size)
-    shard_pairs = zip(src_shards, tgt_shards, pos_src_shards)
+    valid_src_shards = split_corpus(opt.valid_src, opt.shard_size)
+    valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size)
+    shard_pairs = zip(src_shards, tgt_shards, valid_src_shards, valid_tgt_shards)
 
-    # yida RL translate
-    for i, (src_shard, tgt_shard, pos_src_shard) in enumerate(shard_pairs):
+    for i, (train_src_shard, train_tgt_shard,
+            valid_src_shard, valid_tgt_shard) in enumerate(shard_pairs):
         logger.info("Translating shard %d." % i)
         rltor.rltrain(
-            src=src_shard,
-            # yida translate
-            pos_src=pos_src_shard,
-            tgt=tgt_shard,
+            train_src_shard,
+            train_tgt_shard,
+            valid_src_shard,
+            valid_tgt_shard,
             src_dir=opt.src_dir,
             batch_size=opt.batch_size,
             batch_type=opt.batch_type,
             attn_debug=opt.attn_debug
         )
 
-    # if batch_queue is None:
-    #     if len(opt.data_ids) > 1:
-    #         train_shards = []
-    #         for train_id in opt.data_ids:
-    #             shard_base = "train_" + train_id
-    #             train_shards.append(shard_base)
-    #         train_iter = build_dataset_iter_multiple(train_shards, fields, opt)
-    #     else:
-    #         if opt.data_ids[0] is not None:
-    #             shard_base = "train_" + opt.data_ids[0]
-    #         else:
-    #             shard_base = "train"
-    #         train_iter = build_dataset_iter(shard_base, fields, opt)
-    #
-    # else:
-    #     assert semaphore is not None, \
-    #         "Using batch_queue requires semaphore as well"
-    #
-    #     def _train_iter():
-    #         while True:
-    #             batch = batch_queue.get()
-    #             semaphore.release()
-    #             yield batch
-    #
-    #     train_iter = _train_iter()
-    #
-    # valid_iter = build_dataset_iter(
-    #     "valid", fields, opt, is_train=False)
-    #
-    # if len(opt.gpu_ranks):
-    #     logger.info('Starting training on GPU: %s' % opt.gpu_ranks)
-    # else:
-    #     logger.info('Starting training on CPU, could be very slow')
-    # train_steps = opt.train_steps
-    # if opt.single_pass and train_steps > 0:
-    #     logger.warning("Option single_pass is enabled, ignoring train_steps.")
-    #     train_steps = 0
-    #
-    # trainer.train(
-    #     train_iter,
-    #     train_steps,
-    #     save_checkpoint_steps=opt.save_checkpoint_steps,
-    #     valid_iter=valid_iter,
-    #     valid_steps=opt.valid_steps)
-    #
-    # if trainer.report_manager.tensorboard_writer is not None:
-    #     trainer.report_manager.tensorboard_writer.close()

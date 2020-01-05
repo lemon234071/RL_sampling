@@ -599,7 +599,7 @@ class Translator(object):
                            else (batch.src, None)
 
         # yida translate
-        if self.model.pos_generator is not None:
+        if self.model.pos_enc:
             pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
         else:
             pos_src = None
