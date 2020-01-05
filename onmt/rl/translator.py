@@ -207,7 +207,7 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
-        self.writer = SummaryWriter('./tb_log')
+        self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
         self.rl_model.train()
