@@ -438,6 +438,7 @@ class Translator(object):
         # input = input.contiguous().view(input.size(0), -1)
         input = enc_states[-1].squeeze()
         logits_t = self.rl_model(input)
+        # logits_t = self.rl_model.generator(outputs)
 
         # compute loss
         loss = self._compute_loss_k(logits_t, batch, data, xlation_builder,
