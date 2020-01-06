@@ -156,8 +156,11 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     model = nn.Sequential(
         nn.Linear(model_opt.enc_rnn_size,
-                  model_opt.enc_rnn_size),  # len(fields["tgt"].base_field.vocab)
+                  model_opt.enc_rnn_size),
         Cast(torch.float32)
+        # nn.BatchNorm1d(model_opt.enc_rnn_size),
+        # nn.ReLU()
+        # nn.Dropout(0.5)
     )
 
     # Build Generator.
