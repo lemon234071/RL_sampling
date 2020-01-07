@@ -138,10 +138,10 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
-            epochs=10,
-            report_every=10,
-            valid_steps=50,
-            save_checkpoint_steps=100,
+            epochs=2,
+            report_every=1,
+            valid_steps=10,
+            save_checkpoint_steps=50,
             seed=-1):
         self.model = model
         self.fields = fields
