@@ -530,6 +530,7 @@ class Translator(object):
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
         self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
+        self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         if self.optim.training_step % self.report_every == 0:
             print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)
@@ -538,6 +539,7 @@ class Translator(object):
             print("         loss", loss_t.mean().item())
             print("             qs bleu:", k_reward_qs)
             print("             bl bleu:", reward_bl)
+            print("     lr", self.optim.learning_rate())
         return loss
 
     def tid2t(self, t_ids):
