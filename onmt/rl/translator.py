@@ -140,8 +140,8 @@ class Translator(object):
             logger=None,
             epochs=10,
             report_every=10,
-            valid_steps=100,
-            save_checkpoint_steps=200,
+            valid_steps=50,
+            save_checkpoint_steps=100,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -402,10 +402,10 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                self._gradient_accumulation(batch, train_data, train_xlation_builder)
-
                 if step % self.valid_steps == 0:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
+
+                self._gradient_accumulation(batch, train_data, train_xlation_builder)
 
                 if (self.model_saver is not None
                         and (self.save_checkpoint_steps != 0
@@ -523,19 +523,17 @@ class Translator(object):
             # cal rewards
             k_reward_qs.append(cal_reward(batch_sents, golden_truth)["sum_bleu"])
 
-        # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
         reward_bl = sum(k_reward_qs) / len(k_reward_qs)
-        reward = torch.tensor(k_reward_qs).cuda() - reward_bl
+        reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
         loss = reward * loss_t
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("train_k_reward", {"reward_mean": reward.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("sum_bleu", {"sum_bleu_mean": reward_bl}, self.optim.training_step)
+        self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
         if self.optim.training_step % self.report_every == 0:
             print(k_learned_t[:, :5].squeeze())
             print("step", self.optim.training_step)
-            print(" rate:", torch.sum(k_learned_t.gt(0.7), 1).tolist())
+            print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
             print("     reward", reward)
             print("         loss", loss_t.mean().item())
             print("             qs bleu:", k_reward_qs)
