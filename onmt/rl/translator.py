@@ -525,7 +525,7 @@ class Translator(object):
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
         )
         baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
-        reward_bl = cal_reward(baseline, golden_truth)
+        reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
