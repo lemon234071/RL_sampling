@@ -140,9 +140,9 @@ class Translator(object):
             logger=None,
             epochs=2,
             samples_n=2,
-            report_every=1,
-            valid_steps=10,
-            save_checkpoint_steps=50,
+            report_every=5,
+            valid_steps=30,
+            save_checkpoint_steps=100,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -487,12 +487,21 @@ class Translator(object):
             # cal rewards
             k_reward_qs.append(cal_reward(batch_sents, golden_truth)["sum_bleu"])
 
+        # with torch.no_grad():
+        #     self.model.decoder.init_state(src, memory_bank, enc_states)
+        # batch_bl_data = self.translate_batch(
+        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
+        # )
+        # baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
+        topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+        bl_t = self.tid2t([topk_ids])
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
-        batch_bl_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
+        bl_batch_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
         )
-        baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
+        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+
         reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
@@ -563,12 +572,13 @@ class Translator(object):
 
         self.rl_model.train()
         print(learned_t[0][:5].squeeze())
-        print(" valid rate:", sum(learned_t[0].gt(0.7)).item())
+        print(" valid rate:", sum(learned_t[0].gt(0.5)).item())
         reward_qs = cal_reward(all_predictions, golden)
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs["bleu"])
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_sum_bleu", {"sum_bleu": reward_qs["sum_bleu"]}, self.optim.training_step)
+        self.writer.add_scalars("t_rate", {"t_rate": sum(learned_t[0].gt(0.5)).item()}, self.optim.training_step)
 
     def ids2sents(
             self,
