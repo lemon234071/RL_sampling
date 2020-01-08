@@ -747,6 +747,8 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida translate
+    group.add('--rl_samples', '-rl_samples', default=2, type=int,
+              help="total number of rl samples.")
     group.add('--reset_optim', '-reset_optim', default='none',
               choices=['none', 'all', 'states', 'keep_states'],
               help="Optimization resetter when train_from.")

@@ -139,6 +139,7 @@ class Translator(object):
             report_score=True,
             logger=None,
             epochs=2,
+            samples_n=2,
             report_every=1,
             valid_steps=10,
             save_checkpoint_steps=50,
@@ -215,6 +216,7 @@ class Translator(object):
         self.report_every = report_every
         self.valid_steps = valid_steps
         self.save_checkpoint_steps = save_checkpoint_steps
+        self.samples_n = samples_n
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
@@ -260,6 +262,7 @@ class Translator(object):
             fields,
             src_reader,
             tgt_reader,
+            samples_n=opt.rl_samples,
             gpu=opt.gpu,
             n_best=opt.n_best,
             min_length=opt.min_length,
@@ -448,54 +451,14 @@ class Translator(object):
             self.optim.backward(loss)
         self.optim.step()
 
-    def _compute_loss(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
-        # topk_scores, topk_ids = logits.topk(1, dim=-1) # sample k t, cal reward , average as bl
-        dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-        topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-        learned_t = self.tid2t(topk_ids)
-
-        loss_t = self.criterion(logits_t, topk_ids.view(-1))
-
-        # infer samples
-        attn_debug = False
-        with torch.no_grad():
-            self.model.decoder.init_state(src, memory_bank, enc_states)
-        batch_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
-        )
-        batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
-        reward_qs = cal_reward(batch_sents, golden_truth)
-        # infer baseline
-        with torch.no_grad():
-            self.model.decoder.init_state(src, memory_bank, enc_states)
-        batch_bl_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t, bl=True
-        )
-        baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
-        reward_bl = cal_reward(baseline, golden_truth)
-
-        # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
-        reward = reward_qs["sum_bleu"] - reward_bl["sum_bleu"]
-
-        loss = reward * loss_t
-
-        self.writer.add_scalars("train_loss", {"loss": loss_t.data.item()}, self.optim.training_step)
-        self.writer.add_scalars("train_reward", {"reward": reward}, self.optim.training_step)
-        if self.optim.training_step % self.report_every == 0:
-            print("step", self.optim.training_step)
-            print(learned_t[:5].squeeze())
-            print("     rate:", sum(learned_t.gt(0.7)).item())
-            print("         reward", reward)
-            print("             loss", loss_t.item())
-            print("                 qs bleu:", reward_qs["bleu"])
-            print("                 bl bleu:", reward_bl["bleu"])
-        return loss
-
-    def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths, k=4):
+    def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
+        k = self.samples_n
         # topk_scores, topk_ids = logits.topk(1, dim=-1) # sample k t, cal reward , average as bl
         dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
         k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(k)]
         k_learned_t = self.tid2t(k_topk_ids)
+        t_mode = k_learned_t.squeeze().mode(-1)[0]
+
         k_topk_ids = torch.stack(k_topk_ids, -1)
         # k_topk_ids = torch.cat(k_topk_ids, 0)
 
@@ -535,8 +498,9 @@ class Translator(object):
         self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
         self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
+        self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
         if self.optim.training_step % self.report_every == 0:
-            print(k_learned_t[:, :5].squeeze())
+            print(t_mode)
             print("step", self.optim.training_step)
             print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
             print("     reward", reward)
