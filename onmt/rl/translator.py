@@ -405,7 +405,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0:
+                if step % self.valid_steps == 0 or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -414,6 +414,11 @@ class Translator(object):
                         and (self.save_checkpoint_steps != 0
                              and step % self.save_checkpoint_steps == 0)):
                     self.model_saver.save(step, moving_average=None)
+            print("!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!")
+            print("epoch:", epoch)
+            print("!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!")
         if self.model_saver is not None:
             self.model_saver.save(step, moving_average=None)
 
