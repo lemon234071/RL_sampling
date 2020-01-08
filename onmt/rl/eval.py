@@ -6,10 +6,10 @@ def cal_reward(preds, golden):
     golden = [[x] for x in golden]
     nltk_bleu = []
     chencherry = SmoothingFunction()
-    # nltk_bleu.append(round(corpus_bleu(golden, infer, smoothing_function=chencherry.method1), 6))
-    for i in range(4):
-        weights = [1 / (i + 1)] * (i + 1)
-        nltk_bleu.append(
-            round(corpus_bleu(
-                golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
+    nltk_bleu.append(round(corpus_bleu(golden, infer, smoothing_function=chencherry.method1), 6))
+    # for i in range(4):
+    #     weights = [1 / (i + 1)] * (i + 1)
+    #     nltk_bleu.append(
+    #         round(corpus_bleu(
+    #             golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
     return {"bleu": nltk_bleu, "sum_bleu": sum(nltk_bleu)}
