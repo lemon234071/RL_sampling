@@ -463,19 +463,15 @@ class Translator(object):
         batch_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t
         )
+        batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+        reward_qs = cal_reward(batch_sents, golden_truth)
         # infer baseline
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         batch_bl_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t, bl=True
         )
-
-        # translate, so slow
-        batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
         baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
-
-        # cal rewards
-        reward_qs = cal_reward(batch_sents, golden_truth)
         reward_bl = cal_reward(baseline, golden_truth)
 
         # reward = (reward_qs["sum_bleu"] - reward_bl["sum_bleu"]) / reward_bl["sum_bleu"]
@@ -505,7 +501,7 @@ class Translator(object):
 
         k_logits_t = torch.stack([logits_t] * k, -1)
         # k_logits_t = torch.cat([logits_t] * k, 0)
-        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).sum(0)
+        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)
 
         # infer samples(slow or not
         attn_debug = False
@@ -523,13 +519,21 @@ class Translator(object):
             # cal rewards
             k_reward_qs.append(cal_reward(batch_sents, golden_truth)["sum_bleu"])
 
-        reward_bl = sum(k_reward_qs) / len(k_reward_qs)
+        with torch.no_grad():
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+        batch_bl_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
+        )
+        baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
+        reward_bl = cal_reward(baseline, golden_truth)
+        reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
         loss = reward * loss_t
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
         self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
+        self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         if self.optim.training_step % self.report_every == 0:
             print(k_learned_t[:, :5].squeeze())
