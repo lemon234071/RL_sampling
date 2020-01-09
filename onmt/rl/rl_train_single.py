@@ -8,7 +8,7 @@ import torch
 from onmt.inputters.inputter import load_old_vocab, old_style_vocab
 from onmt.models import build_model_saver
 from onmt.rl.model_builder import build_model
-from onmt.rl.translator import build_rltor
+from onmt.rl.trainer import build_rltor
 from onmt.utils.logging import logger
 from onmt.utils.misc import set_random_seed
 from onmt.utils.misc import split_corpus

@@ -123,7 +123,7 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy, learned_t):
+def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
     # logits, _ = get_topp(logits, top_p=0.9)
     # logits /= 1
 
@@ -272,11 +272,7 @@ class RandomSampling(DecodeStrategy):
         self.ensure_min_length(pos_log_probs)
         self.block_ngram_repeats(pos_log_probs)
         # TODO
-        entropy = -torch.sum(torch.exp(log_probs) * log_probs, -1)
         if self.pos_gen:
-            pos_entropy = -torch.sum(torch.exp(pos_log_probs) * pos_log_probs, -1)
-            self.H_alive_seq = torch.cat([self.H_alive_seq, entropy.view(entropy.shape[0], 1)], -1)
-            self.pos_H_alive_seq = torch.cat([self.pos_H_alive_seq, pos_entropy.view(pos_entropy.shape[0], 1)], -1)
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
@@ -287,7 +283,7 @@ class RandomSampling(DecodeStrategy):
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
             topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, entropy, pos_entropy, self.learned_t)
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t)
 
         self.is_finished = topk_ids.eq(self.eos)
 
