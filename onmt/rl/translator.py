@@ -493,17 +493,19 @@ class Translator(object):
         #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
         # )
         # baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
-        topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-        bl_t = self.tid2t([topk_ids])
-        with torch.no_grad():
-            self.model.decoder.init_state(src, memory_bank, enc_states)
-        bl_batch_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
-        )
-        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
-        reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
+        # topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+        # bl_t = self.tid2t([topk_ids])
+        # with torch.no_grad():
+        #     self.model.decoder.init_state(src, memory_bank, enc_states)
+        # bl_batch_data = self.translate_batch(
+        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
+        # )
+        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+
+        # reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
+        reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
         loss = reward * loss_t
@@ -578,7 +580,8 @@ class Translator(object):
         print("         valid bleu:", reward_qs["bleu"])
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_sum_bleu", {"sum_bleu": reward_qs["sum_bleu"]}, self.optim.training_step)
-        self.writer.add_scalars("t_rate", {"t_rate": sum(learned_t[0].gt(0.5)).item()}, self.optim.training_step)
+        self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
+                                self.optim.training_step)
 
     def ids2sents(
             self,
