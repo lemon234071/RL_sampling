@@ -458,7 +458,6 @@ class Translator(object):
 
     def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
         k = self.samples_n
-        # topk_scores, topk_ids = logits.topk(1, dim=-1) # sample k t, cal reward , average as bl
         dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
         k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(k)]
         k_learned_t = self.tid2t(k_topk_ids)
@@ -494,18 +493,18 @@ class Translator(object):
         # )
         # baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
 
-        # topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-        # bl_t = self.tid2t([topk_ids])
-        # with torch.no_grad():
-        #     self.model.decoder.init_state(src, memory_bank, enc_states)
-        # bl_batch_data = self.translate_batch(
-        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
-        # )
-        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+        topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+        bl_t = self.tid2t([topk_ids])
+        with torch.no_grad():
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+        bl_batch_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
+        )
+        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
-        # reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
+        reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
-        reward_bl = reward_mean
+        # reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
         loss = reward * loss_t
@@ -549,6 +548,8 @@ class Translator(object):
                 # F-prop through the model.
                 logits_t = self.rl_model(input)
 
+                # dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
+                # k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
                 learned_t = self.tid2t([topk_ids])
 

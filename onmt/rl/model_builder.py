@@ -167,7 +167,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     generator = nn.Sequential(
         nn.Linear(model_opt.enc_rnn_size,
-                  20),  # len(fields["tgt"].base_field.vocab)
+                  1),  # len(fields["tgt"].base_field.vocab)
         Cast(torch.float32),
         gen_func
     )
