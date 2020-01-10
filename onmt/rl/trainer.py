@@ -546,6 +546,7 @@ class Translator(object):
         loss_total = 0.0
         step = 0
         all_predictions = []
+        arg_prediction = []
         golden = []
 
         self.rl_model.eval()
@@ -560,8 +561,6 @@ class Translator(object):
                 # F-prop through the model.
                 logits_t = self.rl_model(input)
 
-                # dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-                # k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
                 learned_t = self.tid2t([topk_ids])
 
@@ -580,6 +579,17 @@ class Translator(object):
                 all_predictions += batch_sents
                 golden += golden_truth
 
+                dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
+                k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+                learned_t_arg = self.tid2t([k_topk_ids])
+                self.model.decoder.init_state(src, memory_bank, enc_states)
+                batch_data_arg = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t_arg[0]
+                )
+                batch_sents_arg, golden_truth = self.ids2sents(batch_data_arg, xlation_builder)
+                arg_prediction += batch_sents_arg
+
+
                 loss = loss_t.sum()
 
                 loss_total += loss
@@ -588,15 +598,21 @@ class Translator(object):
         self.rl_model.train()
         print(learned_t[0][:5].squeeze())
         print(" valid rate:", sum(learned_t[0].gt(0.5)).item())
+        reward_qs_dict_arg = cal_reward(arg_prediction, golden)
         reward_qs_dict = cal_reward(all_predictions, golden)
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs_dict["bleu"])
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward",
-                                {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100},
+                                {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100,
+                                 "reward_arg": reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs_dict["bleu"]}, self.optim.training_step)
-        self.writer.add_scalars("valid_dist", {"dist": reward_qs_dict["dist"]}, self.optim.training_step)
+        self.writer.add_scalars("valid", {"bleu": reward_qs_dict["bleu"],
+                                          "bleu_arg": reward_qs_dict_arg["bleu"],
+                                          "dist": reward_qs_dict["dist"],
+                                          "dist_arg": reward_qs_dict_arg["dist"]
+                                          }, self.optim.training_step)
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
                                 self.optim.training_step)
 
