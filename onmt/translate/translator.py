@@ -193,6 +193,7 @@ class Translator(object):
         self._filter_pred = None
 
         self.leanred_t = leanred_t
+        print("t", leanred_t)
         # for debugging
         self.beam_trace = self.dump_beam != ""
         self.beam_accum = None
