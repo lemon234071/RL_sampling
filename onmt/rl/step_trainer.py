@@ -217,6 +217,9 @@ class Translator(object):
         self.valid_steps = valid_steps
         self.save_checkpoint_steps = save_checkpoint_steps
         self.samples_n = samples_n
+        self.alive_t = torch.full(
+            [batch_size * parallel_paths, 1], self.bos,
+            dtype=torch.long, device=device)
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss()
@@ -714,7 +717,7 @@ class Translator(object):
                 if self.model.pos_generator is not None else None
 
             # yida translate
-            log_probs, attn, pos_log_probs, random_sampler.learned_t = self._decode_and_generate(
+            log_probs, attn, pos_log_probs, random_sampler.learned_t, topk_ids = self._decode_and_generate(
                 decoder_input,
                 # yida tranlate
                 pos_decoder_in,
@@ -847,7 +850,6 @@ class Translator(object):
             dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
             topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
             learned_t = self.tid2t([topk_ids])[0]
-            loss_t = self.criterion(logits_t, topk_ids.view(-1))
 
             log_probs = self.model.generator(dec_out.squeeze(0))
             # yida translate
@@ -879,7 +881,7 @@ class Translator(object):
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         # yida translate
-        return log_probs, attn, pos_log_probs, learned_t
+        return log_probs, attn, pos_log_probs, learned_t, topk_ids
 
     def _translate_batch(
             self,

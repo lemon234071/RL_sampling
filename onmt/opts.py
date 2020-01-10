@@ -747,6 +747,8 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida translate
+    group.add('--learned_t', '-learned_t', default=0.1, type=float,
+              help="learned_t.")
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
     group.add('--reset_optim', '-reset_optim', default='none',
@@ -771,10 +773,10 @@ def translate_opts(parser):
               Inspired by torchtext's pool mechanism.""")
     group.add('--gpu_ranks', '-gpu_ranks', default=[], nargs='*', type=int,
               help="list of ranks of each process.")
-    group.add('--valid_src', '-valid_src', required=True,
+    group.add('--valid_src', '-valid_src', required=False,
               help="valid source sequence to decode (one line per "
                    "sequence)")
-    group.add('--valid_tgt', '-valid_tgt', required=True,
+    group.add('--valid_tgt', '-valid_tgt', required=False,
               help="valid response sequence to decode (one line per "
                    "sequence)")
     group.add('--pos_src', '-pos_src', required=False,

@@ -61,13 +61,13 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, pos_logits, mask=True):
+def freq_guide(logits, pos_logits, leanred_t, mask=True):
     # logits_backup = logits.clone()
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 1.1 + (~high).float() * 1.1
+    numerator = high.float() * leanred_t + (~high).float() * 1
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
@@ -123,7 +123,7 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
+def sample_with_dynamic_temperature(logits, pos_logits, leanred_t, entropy, pos_entropy):
     # logits, _ = get_topp(logits, top_p=0.9)
     # logits /= 1
 
@@ -131,7 +131,7 @@ def sample_with_dynamic_temperature(logits, pos_logits, entropy, pos_entropy):
     # logits = pos_guide(logits, pos_logits)
 
     ## freq x
-    logits = freq_guide(logits, pos_logits)
+    logits = freq_guide(logits, pos_logits, leanred_t)
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)
@@ -226,7 +226,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos):
+                 pos_gen, leanred_t):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -250,6 +250,7 @@ class RandomSampling(DecodeStrategy):
         self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
+        self.leanred_t = leanred_t
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs):
@@ -286,7 +287,7 @@ class RandomSampling(DecodeStrategy):
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
             topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, entropy, pos_entropy)
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t, entropy, pos_entropy)
 
         self.is_finished = topk_ids.eq(self.eos)
 
