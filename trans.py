@@ -14,5 +14,6 @@ for i in range(20):
     cmd = "python3 translate.py -gpu 0 -model ./checkpoint/freq_2gen_step_40000.pt -output ./data/t_resp/infer{:.1f}.txt -beam 1 -batch_size 1024 -src ./data/t_resp/{:.1f}src-train.txt -pos_src ./data/t_resp/{:.1f}pos-src-train.txt -max_length 30".format(
         j, j, j)
     print(cmd)
-    os.system(cmd)
+    os.system("python3 test.py")
+    # os.system(cmd)
     print(i, "over")
