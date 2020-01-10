@@ -473,6 +473,8 @@ class Translator(object):
         # infer samples(slow or not
         attn_debug = False
         k_reward_qs = []
+        k_bleu = []
+        k_dist = []
         for i in range(k):
             with torch.no_grad():
                 self.model.decoder.init_state(src, memory_bank, enc_states)
@@ -484,7 +486,10 @@ class Translator(object):
             batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
 
             # cal rewards
-            k_reward_qs.append(cal_reward(batch_sents, golden_truth)["sum_bleu"])
+            reward_dict = cal_reward(batch_sents, golden_truth)
+            k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
+            k_bleu.append(reward_dict["bleu"])
+            k_dist.append(reward_dict["dist"])
 
         # with torch.no_grad():
         #     self.model.decoder.init_state(src, memory_bank, enc_states)
@@ -502,16 +507,23 @@ class Translator(object):
         )
         baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
-        reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
-        reward_mean = sum(k_reward_qs) / len(k_reward_qs)
+        reward_bl_dict = cal_reward(baseline, golden_truth)
+        reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
         # reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
+
+        reward_mean = sum(k_reward_qs) / len(k_reward_qs)
+        bleu_mean = sum(k_bleu) / len(k_bleu)
+        dist_mean = sum(k_dist) / len(k_dist)
+
 
         loss = reward * loss_t
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
-        self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
+        self.writer.add_scalars("reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
+        self.writer.add_scalars("reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
+        self.writer.add_scalars("bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
+        self.writer.add_scalars("dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
         if self.optim.training_step % self.report_every == 0:
@@ -520,8 +532,8 @@ class Translator(object):
             print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
             print("     reward", reward)
             print("         loss", loss_t.mean().item())
-            print("             qs bleu:", k_reward_qs)
-            print("             bl bleu:", reward_bl)
+            print("             qs :", k_reward_qs)
+            print("             bl :", reward_bl)
             print("     lr", self.optim.learning_rate())
         return loss
 
@@ -576,11 +588,15 @@ class Translator(object):
         self.rl_model.train()
         print(learned_t[0][:5].squeeze())
         print(" valid rate:", sum(learned_t[0].gt(0.5)).item())
-        reward_qs = cal_reward(all_predictions, golden)
+        reward_qs_dict = cal_reward(all_predictions, golden)
         print("     valid loss:", loss_total / step)
-        print("         valid bleu:", reward_qs["bleu"])
+        print("         valid bleu:", reward_qs_dict["bleu"])
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_sum_bleu", {"sum_bleu": reward_qs["sum_bleu"]}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward",
+                                {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100},
+                                self.optim.training_step)
+        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs_dict["bleu"]}, self.optim.training_step)
+        self.writer.add_scalars("valid_dist", {"dist": reward_qs_dict["dist"]}, self.optim.training_step)
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
                                 self.optim.training_step)
 
