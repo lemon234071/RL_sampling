@@ -138,7 +138,7 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
-            epochs=2,
+            epochs=4,
             samples_n=2,
             report_every=5,
             valid_steps=30,
