@@ -605,7 +605,6 @@ class Translator(object):
         print("     valid loss:", loss_total / step)
         print("         valid bleu:", reward_qs_dict["bleu"])
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_reward", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward",
                                 {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100,
                                  "reward_arg": reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100},
