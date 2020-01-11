@@ -67,7 +67,7 @@ def freq_guide(logits, pos_logits, learned_t, mask=True):
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * learned_t + (~high).float() * 0.1
+    numerator = high.float() * 0.1 + (~high).float() * learned_t
     logits /= numerator
     if mask:
         high_mask = high.squeeze()
@@ -147,10 +147,10 @@ def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
     # logits = pos_guide(logits, pos_logits)
 
     ## freq x
-    # logits = freq_guide(logits, pos_logits, learned_t)
+    logits = freq_guide(logits, pos_logits, learned_t)
 
     ## learn k
-    logits = topk_guide(logits, pos_logits, learned_t * 10)
+    # logits = topk_guide(logits, pos_logits, learned_t * 10)
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)
