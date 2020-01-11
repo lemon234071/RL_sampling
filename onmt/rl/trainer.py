@@ -23,7 +23,7 @@ from onmt.rl.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 
 
-def build_rltor(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
+def build_rltor_enc(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
     if out_file is None:
         out_file = codecs.open(opt.output, 'w+', 'utf-8')
 

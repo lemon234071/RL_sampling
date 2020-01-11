@@ -8,7 +8,8 @@ import torch
 from onmt.inputters.inputter import load_old_vocab, old_style_vocab
 from onmt.models import build_model_saver
 from onmt.rl.model_builder import build_model
-from onmt.rl.trainer import build_rltor
+from onmt.rl.step_trainer import build_rltor_dec
+from onmt.rl.trainer import build_rltor_enc
 from onmt.utils.logging import logger
 from onmt.utils.misc import set_random_seed
 from onmt.utils.misc import split_corpus
@@ -96,6 +97,7 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
 
     # trainer = build_trainer(
     #     opt, device_id, model, fields, optim, model_saver=model_saver)
+    build_rltor = build_rltor_dec if opt.rl_step else build_rltor_enc
     rltor = build_rltor(opt, rl_model, optim, model_saver, report_score=False)
 
     src_shards = split_corpus(opt.src, opt.shard_size)

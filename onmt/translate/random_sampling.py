@@ -123,7 +123,7 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, leanred_t, entropy, pos_entropy):
+def sample_with_dynamic_temperature(logits, pos_logits, leanred_t):
     # logits, _ = get_topp(logits, top_p=0.9)
     # logits /= 1
 
@@ -242,13 +242,9 @@ class RandomSampling(DecodeStrategy):
                                                dtype=torch.long, device=device)
         # yida translate
         self.pos_predictions = [[] for _ in range(batch_size)]
-        self.entropy = [[] for _ in range(batch_size)]
-        self.pos_entropy = [[] for _ in range(batch_size)]
         self.pos_alive_seq = torch.full(
             [batch_size * 1, 1], bos,
             dtype=torch.long, device=device)
-        self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
-        self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
         self.leanred_t = leanred_t
 
@@ -271,12 +267,7 @@ class RandomSampling(DecodeStrategy):
         # yida translate
         self.ensure_min_length(pos_log_probs)
         self.block_ngram_repeats(pos_log_probs)
-        # TODO
-        entropy = -torch.sum(torch.exp(log_probs) * log_probs, -1)
         if self.pos_gen:
-            pos_entropy = -torch.sum(torch.exp(pos_log_probs) * pos_log_probs, -1)
-            self.H_alive_seq = torch.cat([self.H_alive_seq, entropy.view(entropy.shape[0], 1)], -1)
-            self.pos_H_alive_seq = torch.cat([self.pos_H_alive_seq, pos_entropy.view(pos_entropy.shape[0], 1)], -1)
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
@@ -287,7 +278,7 @@ class RandomSampling(DecodeStrategy):
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
             topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t, entropy, pos_entropy)
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
 
         self.is_finished = topk_ids.eq(self.eos)
 
@@ -307,11 +298,8 @@ class RandomSampling(DecodeStrategy):
             b_orig = self.original_batch_idx[b]
             self.scores[b_orig].append(self.topk_scores[b, 0])
             self.predictions[b_orig].append(self.alive_seq[b, 1:])
-            # yida translate
-            self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
             if self.pos_gen:
                 self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
-                self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
 
             self.attention[b_orig].append(
                 self.alive_attn[:, b, :self.memory_length[b]]
@@ -322,10 +310,8 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        self.H_alive_seq = self.H_alive_seq[is_alive]
         if self.pos_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
-            self.pos_H_alive_seq = self.pos_H_alive_seq[is_alive]
 
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]

@@ -226,7 +226,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos, learned_t, vocab_size):
+                 pos_gen, vocab_pos, learned_t):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -250,15 +250,15 @@ class RandomSampling(DecodeStrategy):
             [batch_size * 1, 1], bos,
             dtype=torch.long, device=device)
         self.alive_logits_t = torch.full(
-            [batch_size, vocab_size, 1], -1,
-            dtype=torch.float, device=device)
+            [batch_size, 20, 1], -1,
+            dtype=torch.float, device=device, requires_grad=True)
         self.alive_lebal = torch.full(
             [batch_size, 1], -1,
             dtype=torch.long, device=device)
         # self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         # self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
-        self.learned_t = learned_t
+        # self.learned_t = learned_t
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs, log_probs_t, bl):
@@ -286,15 +286,19 @@ class RandomSampling(DecodeStrategy):
 
         # yida translate
         # step loss
-        dist = torch.distributions.Multinomial(logits=log_probs_t, total_count=1)
-        t_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-        learned_t = (t_topk_ids + 1) / 10
-        self.alive_logits_t = torch.cat([self.alive_logits_t, log_probs_t], -1)
+        if not bl:
+            dist = torch.distributions.Multinomial(logits=log_probs_t, total_count=1)
+            t_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+        else:
+            _, t_topk_ids = log_probs_t.topk(1, dim=-1)
+        learned_t = (t_topk_ids.float() + 1) / 10
+        with torch.enable_grad():
+            self.alive_logits_t = torch.cat([self.alive_logits_t, log_probs_t.unsqueeze(-1)], -1)
         self.alive_lebal = torch.cat([self.alive_lebal, t_topk_ids], -1)
         # random_sampler.alive_logits_t = torch.cat([random_sampler.alive_logits_t, cur_logit_t], 0)
         # random_sampler.alive_lebal = torch.cat([random_sampler.alive_lebal, t_topk_ids], 0)
 
-        dynamic = not bl
+        dynamic = True
         if not (dynamic and self.pos_gen):
             topk_ids, self.topk_scores = sample_with_temperature(
                 log_probs, self.sampling_temp, self.keep_topk)
@@ -336,8 +340,6 @@ class RandomSampling(DecodeStrategy):
         self.alive_seq = self.alive_seq[is_alive]
         self.alive_logits_t = self.alive_logits_t[is_alive]
         self.alive_lebal = self.alive_lebal[is_alive]
-        # yida translate
-        self.learned_t = self.learned_t[is_alive]
         if self.pos_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
 

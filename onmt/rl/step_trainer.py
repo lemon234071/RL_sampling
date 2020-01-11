@@ -10,6 +10,7 @@ from itertools import count
 
 import torch
 from tensorboardX import SummaryWriter
+from torch.nn.utils.rnn import pad_sequence
 
 import onmt.decoders.ensemble
 import onmt.inputters as inputters
@@ -23,7 +24,7 @@ from onmt.rl.step_random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 
 
-def build_rltor(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
+def build_rltor_dec(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
     if out_file is None:
         out_file = codecs.open(opt.output, 'w+', 'utf-8')
 
@@ -219,7 +220,7 @@ class Translator(object):
         self.samples_n = samples_n
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
-        self.criterion = torch.nn.NLLLoss()
+        self.criterion = torch.nn.NLLLoss(ignore_index=-1)
         self.rl_model.train()
         self.model.eval()
 
@@ -460,48 +461,35 @@ class Translator(object):
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src
         )
 
-        logits_t = batch_data["logits_t"]
-        labels = batch_data["labels"]
-        # gtruth = target.view(-1)
-        # _v.view(-1, _v.size(2))
-        loss_t = self.criterion(logits_t, labels.view(-1))
+        labels = pad_sequence([label[0] for label in batch_data["labels"]], padding_value=-1)
+        logits_t = pad_sequence([logit[0].t() for logit in batch_data["logits_t"]], padding_value=-1)
+        loss_t = self.criterion(logits_t.contiguous().view(-1, logits_t.size(2)), labels.view(-1))
+        t_rate = sum([sum(label[0].lt(0.5)) for label in batch_data["labels"]])
 
         # translate, so slow
-        # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
-        #
-        # # cal rewards
-        # reward = cal_reward(batch_sents, golden_truth)["sum_bleu"]
-        #
-        # topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-        # bl_t = self.tid2t([topk_ids])
-        # with torch.no_grad():
-        #     self.model.decoder.init_state(src, memory_bank, enc_states)
-        # bl_batch_data = self.translate_batch(
-        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
-        # )
-        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-        #
-        # reward_bl = cal_reward(baseline, golden_truth)["sum_bleu"]
+        batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+
+        # cal rewards
+        reward_dict = cal_reward(batch_sents, golden_truth)
+
+        with torch.no_grad():
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+        bl_batch_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl=True
+        )
+        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+        reward_dict_bl = cal_reward(baseline, golden_truth)
         # reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # # reward_bl = reward_mean
         # reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
-        #
-        # loss = reward * loss_t
+        reward = (reward_dict["bleu"] - reward_dict_bl["bleu"]) / reward_dict_bl["bleu"]
+        loss = reward * loss_t
 
-        # self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        # self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
-        # self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
-        # self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
-        # self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
-        # if self.optim.training_step % self.report_every == 0:
-        #     print(t_mode)
-        #     print("step", self.optim.training_step)
-        #     print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
-        #     print("     reward", reward)
-        #     print("         loss", loss_t.mean().item())
-        #     print("             qs bleu:", k_reward_qs)
-        #     print("             bl bleu:", reward_bl)
-        #     print("     lr", self.optim.learning_rate())
+        self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
+        self.writer.add_scalars("bleu_bl", {"bleu": reward_dict_bl["bleu"]}, self.optim.training_step)
+        self.writer.add_scalars("bleu_mean", {"bleu_mean": reward}, self.optim.training_step)
+        self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
+        self.writer.add_scalars("t_rate", {"t_rate": t_rate}, self.optim.training_step)
         return loss
 
     def tid2t(self, t_ids):
@@ -509,41 +497,37 @@ class Translator(object):
         t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
 
-    def validate(self, valid_iter, data, xlation_builder):
+    def validate(self, valid_iter, data, xlation_builder, attn_debug=False):
         loss_total = 0.0
         step = 0
         all_predictions = []
         golden = []
-
+        bl_predictions = []
+        t_rate = 0
         self.rl_model.eval()
         with torch.no_grad():
             for batch in valid_iter:
                 src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
                 self.model.decoder.init_state(src, memory_bank, enc_states)
-                # input = enc_states.transpose(0, 1)
-                # input = input.contiguous().view(input.size(0), -1)
-                input = enc_states[-1].squeeze()
-
-                # F-prop through the model.
-                logits_t = self.rl_model(input)
-
-                # dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-                # k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-                topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-                learned_t = self.tid2t([topk_ids])
-
-                loss_t = self.criterion(logits_t, topk_ids.view(-1))
-
                 # infer samples
-                attn_debug = False
                 batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t[0]
-                )
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src)
+                t_rate += sum([sum(label[0].lt(0.5)) for label in batch_data["labels"]])
+
+                labels = pad_sequence([label[0] for label in batch_data["labels"]], padding_value=-1)
+                logits_t = pad_sequence([logit[0].t() for logit in batch_data["logits_t"]], padding_value=-1)
+                loss_t = self.criterion(logits_t.contiguous().view(-1, logits_t.size(2)), labels.view(-1))
 
                 # translate, so slow
                 batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
 
+                self.model.decoder.init_state(src, memory_bank, enc_states)
+                batch_data_bl = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl=True)
+
+                baseline, _ = self.ids2sents(batch_data_bl, xlation_builder)
                 # cal rewards
+                bl_predictions += baseline
                 all_predictions += batch_sents
                 golden += golden_truth
 
@@ -553,15 +537,14 @@ class Translator(object):
                 step += 1
 
         self.rl_model.train()
-        print(learned_t[0][:5].squeeze())
-        print(" valid rate:", sum(learned_t[0].gt(0.5)).item())
         reward_qs = cal_reward(all_predictions, golden)
-        print("     valid loss:", loss_total / step)
-        print("         valid bleu:", reward_qs["bleu"])
+        bl_reward = cal_reward(bl_predictions, golden)
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_sum_bleu", {"sum_bleu": reward_qs["sum_bleu"]}, self.optim.training_step)
-        self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
+        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs["bleu"], "bl_bleu": bl_reward["bleu"]},
                                 self.optim.training_step)
+        self.writer.add_scalars("valid_dist", {"dist": reward_qs["dist"], "bl_dist": bl_reward["dist"]},
+                                self.optim.training_step)
+        self.writer.add_scalars("valid_t_rate", {"valid_t_rate": t_rate}, self.optim.training_step)
 
     def ids2sents(
             self,
@@ -670,7 +653,6 @@ class Translator(object):
         assert self.block_ngram_repeat == 0
 
         batch_size = batch.batch_size
-        vocab_size = batch.tgt
 
         # # Encoder forward.
         # src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
@@ -679,6 +661,8 @@ class Translator(object):
         use_src_map = self.copy_attn
 
         results = {
+            "logits_t": None,
+            "labels": None,
             "predictions": None,
             "scores": None,
             "attention": None,
@@ -701,7 +685,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos, 1, vocab_size)
+            self.model.pos_generator is not None, vocab_pos, 1)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -831,7 +815,8 @@ class Translator(object):
                 attn = dec_attn["std"]
             else:
                 attn = None
-            logits_t = self.rl_model(dec_out.squeeze(0))
+            with torch.enable_grad():
+                logits_t = self.rl_model(dec_out.squeeze(0))
 
             log_probs = self.model.generator(dec_out.squeeze(0))
             # yida translate

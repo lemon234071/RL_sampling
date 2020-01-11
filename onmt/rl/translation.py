@@ -91,28 +91,23 @@ class TranslationBuilder(object):
         batch = translation_batch["batch"]
         # yida translate
         assert (len(translation_batch["gold_score"]) ==
-                len(translation_batch["predictions"]) ==
-                len(translation_batch["entropy"]))
+                len(translation_batch["predictions"]))
         if "pos_predictions" in translation_batch:
             assert (len(translation_batch["gold_score"]) ==
-                    len(translation_batch["pos_predictions"]) ==
-                    len(translation_batch["pos_entropy"]))
+                    len(translation_batch["pos_predictions"]))
         batch_size = batch.batch_size
 
-        preds, pred_score, attn, gold_score, entropy, indices = list(zip(
+        preds, pred_score, attn, gold_score, indices = list(zip(
             *sorted(zip(translation_batch["predictions"],
                         translation_batch["scores"],
                         translation_batch["attention"],
                         translation_batch["gold_score"],
-                        # yida tanslate
-                        translation_batch["entropy"],
                         batch.indices.data),
                     key=lambda x: x[-1])))
         # yida translate
         if "pos_predictions" in translation_batch:
-            pos_preds, pos_entroy, pos_indices = list(zip(
+            pos_preds, pos_indices = list(zip(
                 *sorted(zip(translation_batch["pos_predictions"],
-                            translation_batch["pos_entropy"],
                             batch.indices.data),
                         key=lambda x: x[-1])))
             assert pos_indices == indices
@@ -137,8 +132,7 @@ class TranslationBuilder(object):
                 src_vocab = None
                 src_raw = None
                 tgt_raw = None
-            # yida translate
-            entropy_sents = entropy[b][0][:-1]
+
             if "pos_predictions" not in translation_batch:
                 pred_sents = [self._build_target_tokens(
                     src[:, b] if src is not None else None,
@@ -153,7 +147,6 @@ class TranslationBuilder(object):
                     attn[b][n])
                     for n in range(self.n_best)]
                 pred_sents, pos_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
-                pos_entropy_sents = pos_entroy[b][0][:-1]
             gold_sent = None
             if tgt is not None:
                 gold_sent = self._build_target_tokens(
@@ -166,9 +159,7 @@ class TranslationBuilder(object):
                 translation = Translation(
                     src[:, b] if src is not None else None,
                     src_raw, tgt_raw, pred_sents, attn[b], pred_score[b],
-                    gold_sent, gold_score[b],
-                    # yida translate
-                    entropy_sents
+                    gold_sent, gold_score[b]
                 )
             else:
                 translation = Translation(
@@ -176,7 +167,7 @@ class TranslationBuilder(object):
                     src_raw, tgt_raw, pred_sents,
                     attn[b], pred_score[b],
                     gold_sent, gold_score[b],
-                    entropy_sents, pos_pred_sents, pos_entropy_sents
+                    pos_pred_sents
                 )
             translations.append(translation)
 
@@ -199,13 +190,13 @@ class Translation(object):
 
     __slots__ = ["src", "src_raw", "pred_sents", "attns", "pred_scores",
                  # yida translate
-                 "pos_pred_sents", "entropy_sents", "pos_entropy_sents", "tgt_raw",
+                 "pos_pred_sents", "tgt_raw",
                  "gold_sent", "gold_score"]
 
     def __init__(self, src, src_raw, tgt_raw, pred_sents,
                  attn, pred_scores, tgt_sent, gold_score,
                  # yida translate
-                 entropy_sents=None, pos_pred_sents=None, pos_entropy_sents=None):
+                 pos_pred_sents=None):
         self.src = src
         self.src_raw = src_raw
         self.tgt_raw = tgt_raw
@@ -216,8 +207,6 @@ class Translation(object):
         self.gold_score = gold_score
         # yida translate
         self.pos_pred_sents = pos_pred_sents
-        self.entropy_sents = entropy_sents
-        self.pos_entropy_sents = pos_entropy_sents
 
     def log(self, sent_number):
         """
