@@ -609,11 +609,13 @@ class Translator(object):
                                 {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100,
                                  "reward_arg": reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid", {"bleu": reward_qs_dict["bleu"],
-                                          "bleu_arg": reward_qs_dict_arg["bleu"],
-                                          "dist": reward_qs_dict["dist"],
-                                          "dist_arg": reward_qs_dict_arg["dist"]
-                                          }, self.optim.training_step)
+        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs_dict["bleu"],
+                                               "bleu_arg": reward_qs_dict_arg["bleu"]
+                                               }, self.optim.training_step)
+        self.writer.add_scalars("valid_dist", {
+            "dist": reward_qs_dict["dist"],
+            "dist_arg": reward_qs_dict_arg["dist"]
+        }, self.optim.training_step)
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
                                 self.optim.training_step)
 
