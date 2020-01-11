@@ -122,22 +122,6 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
     return logits
 
 
-def topk_guide(logits, pos_logits, learned_k):
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
-    high = topk_pos_ids.eq(4)
-    high_mask = high.squeeze()
-    index = int(0.001 * (logits.shape[-1] - 4))
-    logits[high_mask, 4 + index:] = -10000
-
-    for i, k in enumerate(learned_k):
-        if high[i]:
-            top_values, top_indices = torch.topk(logits[i], k.int().item(), dim=-1)
-            kth_best = top_values[-1]
-            ignore = torch.lt(logits[i], kth_best)
-            logits[i, ignore] = -10000
-    return logits
-
-
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
     # logits, _ = get_topp(logits, top_p=0.9)
@@ -147,10 +131,7 @@ def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
     # logits = pos_guide(logits, pos_logits)
 
     ## freq x
-    # logits = freq_guide(logits, pos_logits, learned_t)
-
-    ## learn k
-    logits = topk_guide(logits, pos_logits, learned_t * 10)
+    logits = freq_guide(logits, pos_logits, learned_t)
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)
@@ -245,7 +226,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos, learned_t):
+                 pos_gen, vocab_pos, learned_t, vocab_size):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -261,18 +242,26 @@ class RandomSampling(DecodeStrategy):
                                                dtype=torch.long, device=device)
         # yida translate
         self.pos_predictions = [[] for _ in range(batch_size)]
-        self.entropy = [[] for _ in range(batch_size)]
-        self.pos_entropy = [[] for _ in range(batch_size)]
+        self.logtis_t = [[] for _ in range(batch_size)]
+        self.labels = [[] for _ in range(batch_size)]
+        # self.entropy = [[] for _ in range(batch_size)]
+        # self.pos_entropy = [[] for _ in range(batch_size)]
         self.pos_alive_seq = torch.full(
             [batch_size * 1, 1], bos,
             dtype=torch.long, device=device)
-        self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
-        self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
+        self.alive_logits_t = torch.full(
+            [batch_size, vocab_size, 1], -1,
+            dtype=torch.float, device=device)
+        self.alive_lebal = torch.full(
+            [batch_size, 1], -1,
+            dtype=torch.long, device=device)
+        # self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
+        # self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
         self.learned_t = learned_t
 
     # yida translate
-    def advance(self, log_probs, attn, pos_log_probs, bl):
+    def advance(self, log_probs, attn, pos_log_probs, log_probs_t, bl):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -296,13 +285,22 @@ class RandomSampling(DecodeStrategy):
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         # yida translate
+        # step loss
+        dist = torch.distributions.Multinomial(logits=log_probs_t, total_count=1)
+        t_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+        learned_t = (t_topk_ids + 1) / 10
+        self.alive_logits_t = torch.cat([self.alive_logits_t, log_probs_t], -1)
+        self.alive_lebal = torch.cat([self.alive_lebal, t_topk_ids], -1)
+        # random_sampler.alive_logits_t = torch.cat([random_sampler.alive_logits_t, cur_logit_t], 0)
+        # random_sampler.alive_lebal = torch.cat([random_sampler.alive_lebal, t_topk_ids], 0)
+
         dynamic = not bl
         if not (dynamic and self.pos_gen):
             topk_ids, self.topk_scores = sample_with_temperature(
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
             topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t)
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, learned_t)
 
         self.is_finished = topk_ids.eq(self.eos)
 
@@ -323,10 +321,10 @@ class RandomSampling(DecodeStrategy):
             self.scores[b_orig].append(self.topk_scores[b, 0])
             self.predictions[b_orig].append(self.alive_seq[b, 1:])
             # yida translate
-            self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
+            self.logtis_t[b_orig].append(self.alive_logits_t[b, :, 1:])
+            self.labels[b_orig].append(self.alive_lebal[b, 1:])
             if self.pos_gen:
                 self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
-                self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
 
             self.attention[b_orig].append(
                 self.alive_attn[:, b, :self.memory_length[b]]
@@ -336,12 +334,12 @@ class RandomSampling(DecodeStrategy):
             return
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
+        self.alive_logits_t = self.alive_logits_t[is_alive]
+        self.alive_lebal = self.alive_lebal[is_alive]
         # yida translate
         self.learned_t = self.learned_t[is_alive]
-        self.H_alive_seq = self.H_alive_seq[is_alive]
         if self.pos_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
-            self.pos_H_alive_seq = self.pos_H_alive_seq[is_alive]
 
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]

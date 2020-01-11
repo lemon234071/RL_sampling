@@ -19,7 +19,7 @@ from onmt.modules.copy_generator import collapse_copy_scores
 from onmt.rl.beam_search import BeamSearch
 # yida RL translate
 from onmt.rl.eval import cal_reward
-from onmt.rl.random_sampling import RandomSampling
+from onmt.rl.step_random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 
 
@@ -217,9 +217,6 @@ class Translator(object):
         self.valid_steps = valid_steps
         self.save_checkpoint_steps = save_checkpoint_steps
         self.samples_n = samples_n
-        self.alive_t = torch.full(
-            [batch_size * parallel_paths, 1], self.bos,
-            dtype=torch.long, device=device)
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss()
@@ -444,15 +441,8 @@ class Translator(object):
 
         self.optim.zero_grad()
 
-        # prepare input
-        # input = enc_states.transpose(0, 1)
-        # input = input.contiguous().view(input.size(0), -1)
-        input = enc_states[-1].squeeze()
-        logits_t = self.rl_model(input)
-        # logits_t = self.rl_model.generator(outputs)
-
         # compute loss
-        loss = self._compute_loss_k(logits_t, batch, data, xlation_builder,
+        loss = self._compute_loss_k(batch, data, xlation_builder,
                                     src, enc_states, memory_bank, src_lengths)
         # loss.backward()
         if loss is not None:
@@ -470,9 +460,12 @@ class Translator(object):
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src
         )
 
+        logits_t = batch_data["logits_t"]
+        labels = batch_data["labels"]
         # gtruth = target.view(-1)
         # _v.view(-1, _v.size(2))
-        loss_t = self.criterion(k_logits_t, target.view(-1))
+        loss_t = self.criterion(logits_t, labels.view(-1))
+
         # translate, so slow
         # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
         #
@@ -495,20 +488,20 @@ class Translator(object):
         #
         # loss = reward * loss_t
 
-        self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
-        self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
-        self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
-        self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
-        if self.optim.training_step % self.report_every == 0:
-            print(t_mode)
-            print("step", self.optim.training_step)
-            print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
-            print("     reward", reward)
-            print("         loss", loss_t.mean().item())
-            print("             qs bleu:", k_reward_qs)
-            print("             bl bleu:", reward_bl)
-            print("     lr", self.optim.learning_rate())
+        # self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
+        # self.writer.add_scalars("bleu_bl", {"bleu_mean": reward_bl}, self.optim.training_step)
+        # self.writer.add_scalars("bleu_mean", {"bleu_mean": reward_mean}, self.optim.training_step)
+        # self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
+        # self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
+        # if self.optim.training_step % self.report_every == 0:
+        #     print(t_mode)
+        #     print("step", self.optim.training_step)
+        #     print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
+        #     print("     reward", reward)
+        #     print("         loss", loss_t.mean().item())
+        #     print("             qs bleu:", k_reward_qs)
+        #     print("             bl bleu:", reward_bl)
+        #     print("     lr", self.optim.learning_rate())
         return loss
 
     def tid2t(self, t_ids):
@@ -677,6 +670,7 @@ class Translator(object):
         assert self.block_ngram_repeat == 0
 
         batch_size = batch.batch_size
+        vocab_size = batch.tgt
 
         # # Encoder forward.
         # src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
@@ -707,7 +701,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos, 1)
+            self.model.pos_generator is not None, vocab_pos, 1, vocab_size)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -717,7 +711,7 @@ class Translator(object):
                 if self.model.pos_generator is not None else None
 
             # yida translate
-            log_probs, attn, pos_log_probs, random_sampler.learned_t, topk_ids = self._decode_and_generate(
+            log_probs, attn, pos_log_probs, log_probs_t = self._decode_and_generate(
                 decoder_input,
                 # yida tranlate
                 pos_decoder_in,
@@ -730,8 +724,9 @@ class Translator(object):
                 batch_offset=random_sampler.select_indices
             )
 
+
             # yida tranlate
-            random_sampler.advance(log_probs, attn, pos_log_probs, bl)
+            random_sampler.advance(log_probs, attn, pos_log_probs, log_probs_t, bl)
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
                 random_sampler.update_finished()
@@ -760,10 +755,10 @@ class Translator(object):
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate
-        results["entropy"] = random_sampler.entropy
+        results["logits_t"] = random_sampler.logtis_t
+        results["labels"] = random_sampler.labels
         if self.model.pos_generator is not None:
             results["pos_predictions"] = random_sampler.pos_predictions
-            results["pos_entropy"] = random_sampler.pos_entropy
         return results
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
@@ -771,27 +766,17 @@ class Translator(object):
                         memory_bank, src_lengths, enc_states, src, bl=False):
         """Translate a batch of sentences."""
         with torch.no_grad():
-            if self.beam_size == 1:
-                return self._translate_random_sampling(
-                    batch,
-                    src_vocabs,
-                    self.max_length,
-                    # yida RL translate
-                    memory_bank, src_lengths, enc_states, src, bl,
-                    #
-                    min_length=self.min_length,
-                    sampling_temp=self.random_sampling_temp,
-                    keep_topk=self.sample_from_topk,
-                    return_attention=attn_debug or self.replace_unk)
-            else:
-                return self._translate_batch(
-                    batch,
-                    src_vocabs,
-                    self.max_length,
-                    min_length=self.min_length,
-                    ratio=self.ratio,
-                    n_best=self.n_best,
-                    return_attention=attn_debug or self.replace_unk)
+            return self._translate_random_sampling(
+                batch,
+                src_vocabs,
+                self.max_length,
+                # yida RL translate
+                memory_bank, src_lengths, enc_states, src, bl,
+                #
+                min_length=self.min_length,
+                sampling_temp=self.random_sampling_temp,
+                keep_topk=self.sample_from_topk,
+                return_attention=attn_debug or self.replace_unk)
 
     def _run_encoder(self, batch):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \
@@ -847,9 +832,6 @@ class Translator(object):
             else:
                 attn = None
             logits_t = self.rl_model(dec_out.squeeze(0))
-            dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-            topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-            learned_t = self.tid2t([topk_ids])[0]
 
             log_probs = self.model.generator(dec_out.squeeze(0))
             # yida translate
@@ -881,7 +863,7 @@ class Translator(object):
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         # yida translate
-        return log_probs, attn, pos_log_probs, learned_t, topk_ids
+        return log_probs, attn, pos_log_probs, logits_t
 
     def _translate_batch(
             self,

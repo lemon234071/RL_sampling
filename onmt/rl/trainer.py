@@ -487,7 +487,8 @@ class Translator(object):
 
             # cal rewards
             reward_dict = cal_reward(batch_sents, golden_truth)
-            k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
+            # k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
+            k_reward_qs.append(reward_dict["bleu"])
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
@@ -508,7 +509,8 @@ class Translator(object):
         baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
         reward_bl_dict = cal_reward(baseline, golden_truth)
-        reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
+        # reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
+        reward_bl = reward_bl_dict["bleu"]
         # reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
