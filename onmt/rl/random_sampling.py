@@ -138,10 +138,7 @@ def topk_guide(logits, pos_logits, learned_k):
         sub_logits = logits[index_kh, :5 + index]
         top_values, top_indices = torch.topk(sub_logits, k.int().item(), dim=-1)
         kth_best = top_values[:, -1:]
-        try:
-            index_lt = logits[index_kh, :].lt(kth_best)
-        except:
-            print(1)
+        index_lt = logits[index_kh, :].lt(kth_best)
         logits[index_kh] = logits[index_kh].masked_fill(index_lt, -10000)
     # for i, k in enumerate(learned_k):
     #     if high[i]:
