@@ -750,8 +750,9 @@ class Translator(object):
         for step in range(max_length):
             decoder_input = beam.current_predictions.view(1, -1, 1)
 
-            log_probs, attn = self._decode_and_generate(
+            log_probs, attn, _ = self._decode_and_generate(
                 decoder_input,
+                None,
                 memory_bank,
                 batch,
                 src_vocabs,

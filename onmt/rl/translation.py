@@ -89,7 +89,6 @@ class TranslationBuilder(object):
 
     def from_batch(self, translation_batch):
         batch = translation_batch["batch"]
-        # yida translate
         assert (len(translation_batch["gold_score"]) ==
                 len(translation_batch["predictions"]))
         if "pos_predictions" in translation_batch:

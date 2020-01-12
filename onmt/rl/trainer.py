@@ -637,69 +637,13 @@ class Translator(object):
         batch_gt = []
         translations = xlation_builder.from_batch(batch_data)
         for trans in translations:
-            # all_scores += [trans.pred_scores[:self.n_best]]
-            # pred_score_total += trans.pred_scores[0]
-            # pred_words_total += len(trans.pred_sents[0])
-            # if tgt is not None:
-            #     gold_score_total += trans.gold_score
-            #     gold_words_total += len(trans.gold_sent) + 1
 
             n_best_preds = [" ".join(pred)
                             for pred in trans.pred_sents[:self.n_best]]
-            # all_predictions += [n_best_preds]
             batch_predictions += [n_best_preds]
             batch_gt += [trans.tgt_raw]
             # self.out_file.write('\n'.join(n_best_preds) + '\n')
             # self.out_file.flush()
-            # yida translate
-            # all_entropy += [trans.entropy_sents.tolist()]
-            # if self.model.pos_generator is not None:
-            #     n_best_pos_preds = [" ".join(pos_pred)
-            #                         for pos_pred in trans.pos_pred_sents[:self.n_best]]
-            #     all_pos_predictions += [n_best_pos_preds]
-            #     pos_seq = []
-            #     for x in n_best_pos_preds[0].split():
-            #         try:
-            #             pos_seq.append(int(x))
-            #         except:
-            #             pos_seq.append(0)
-            #     temp_seq = [x for x in pos_seq if x < 2]
-            #     if temp_seq:
-            #         cnt_high += sum(temp_seq) / len(temp_seq)
-            #     cnt_line += 1
-            #     all_pos_entropy += [trans.pos_entropy_sents.tolist()]
-
-            # if self.verbose:
-            #     sent_number = next(counter)
-            #     output = trans.log(sent_number)
-            #     if self.logger:
-            #         self.logger.info(output)
-            #     else:
-            #         os.write(1, output.encode('utf-8'))
-
-            # if attn_debug:
-            #     preds = trans.pred_sents[0]
-            #     preds.append('</s>')
-            #     attns = trans.attns[0].tolist()
-            #     if self.data_type == 'text':
-            #         srcs = trans.src_raw
-            #     else:
-            #         srcs = [str(item) for item in range(len(attns[0]))]
-            #     header_format = "{:>10.10} " + "{:>10.7} " * len(srcs)
-            #     row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
-            #     output = header_format.format("", *srcs) + '\n'
-            #     for word, row in zip(preds, attns):
-            #         max_index = row.index(max(row))
-            #         row_format = row_format.replace(
-            #             "{:>10.7f} ", "{:*>10.7f} ", max_index + 1)
-            #         row_format = row_format.replace(
-            #             "{:*>10.7f} ", "{:>10.7f} ", max_index)
-            #         output += row_format.format(word, *row) + '\n'
-            #         row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
-            #     if self.logger:
-            #         self.logger.info(output)
-            #     else:
-            #         os.write(1, output.encode('utf-8'))
         return batch_predictions, batch_gt
 
     def _translate_random_sampling(
@@ -807,10 +751,9 @@ class Translator(object):
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate
-        results["entropy"] = random_sampler.entropy
-        if self.model.pos_generator is not None:
-            results["pos_predictions"] = random_sampler.pos_predictions
-            results["pos_entropy"] = random_sampler.pos_entropy
+        # results["entropy"] = random_sampler.entropy
+        # if self.model.pos_generator is not None:
+        #     results["pos_predictions"] = random_sampler.pos_predictions
         return results
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
