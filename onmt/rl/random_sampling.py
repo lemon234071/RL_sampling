@@ -127,14 +127,28 @@ def topk_guide(logits, pos_logits, learned_k):
     high = topk_pos_ids.eq(4)
     high_mask = high.squeeze()
     index = int(0.001 * (logits.shape[-1] - 4))
-    logits[high_mask, 4 + index:] = -10000
+    # logits[high_mask, 4 + index:] = -10000
 
-    for i, k in enumerate(learned_k):
-        if high[i]:
-            top_values, top_indices = torch.topk(logits[i], k.int().item(), dim=-1)
-            kth_best = top_values[-1]
-            ignore = torch.lt(logits[i], kth_best)
-            logits[i, ignore] = -10000
+    # speed topk
+    for k in learned_k.unique(sorted=False):
+        index_k = learned_k.eq(k)
+        index_kh = (index_k & high).view(-1)
+        if not index_kh.any():
+            continue
+        sub_logits = logits[index_kh, :5 + index]
+        top_values, top_indices = torch.topk(sub_logits, k.int().item(), dim=-1)
+        kth_best = top_values[:, -1:]
+        try:
+            index_lt = logits[index_kh, :].lt(kth_best)
+        except:
+            print(1)
+        logits[index_kh] = logits[index_kh].masked_fill(index_lt, -10000)
+    # for i, k in enumerate(learned_k):
+    #     if high[i]:
+    #         top_values, top_indices = torch.topk(logits[i, :5 + index], k.int().item(), dim=-1)
+    #         kth_best = top_values[-1]
+    #         ignore = torch.lt(logits[i], kth_best)
+    #         logits[i, ignore] = -10000
     return logits
 
 
