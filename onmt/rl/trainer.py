@@ -536,6 +536,8 @@ class Translator(object):
         self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
         self.writer.add_scalars("train_reward/bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
         self.writer.add_scalars("train_reward/dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/bleu_bl", {"bleu_bl": reward_bl_dict["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         self.writer.add_scalars("train_t_mode", {"t_mode": t_mode.mean()}, self.optim.training_step)
         return loss
