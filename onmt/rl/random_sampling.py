@@ -139,7 +139,7 @@ def topk_guide(logits, pos_logits, learned_k):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
+def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method):
     # logits, _ = get_topp(logits, top_p=0.9)
     # logits /= 1
 
@@ -147,10 +147,12 @@ def sample_with_dynamic_temperature(logits, pos_logits, learned_t):
     # logits = pos_guide(logits, pos_logits)
 
     ## freq x
-    logits = freq_guide(logits, pos_logits, learned_t)
-
-    ## learn k
-    # logits = topk_guide(logits, pos_logits, learned_t * 10)
+    if sample_method == "freq":
+        logits = freq_guide(logits, pos_logits, learned_t)
+    elif sample_method == "topk":
+        logits = topk_guide(logits, pos_logits, learned_t * 10)
+    else:
+        raise Exception("wrong sample method")
 
     dist = torch.distributions.Multinomial(
         logits=logits, total_count=1)
@@ -245,7 +247,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos, learned_t):
+                 pos_gen, vocab_pos, learned_t, sample_method):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -270,6 +272,7 @@ class RandomSampling(DecodeStrategy):
         self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
         self.learned_t = learned_t
+        self.sample_method = sample_method
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs, bl):
@@ -302,7 +305,7 @@ class RandomSampling(DecodeStrategy):
                 log_probs, self.sampling_temp, self.keep_topk)
         else:
             topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t)
+                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 

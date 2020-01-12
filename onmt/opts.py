@@ -747,6 +747,9 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida translate
+    group.add('--sample_method', '-sample_method', default='freq',
+              choices=["freq", "topk", "topp"],
+              help="")
     group.add('--rl_step', '-rl_step', action='store_true',
               help=".")
     group.add('--learned_t', '-learned_t', default=0.1, type=float,

@@ -482,14 +482,14 @@ class Translator(object):
         # reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # # reward_bl = reward_mean
         # reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
-        reward = (reward_dict["bleu"] - reward_dict_bl["bleu"]) / reward_dict_bl["bleu"]
+        reward = (reward_dict["bleu"] - reward_dict_bl["bleu"])
         loss = reward * loss_t
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("bleu_bl", {"bleu": reward_dict_bl["bleu"]}, self.optim.training_step)
-        self.writer.add_scalars("bleu_mean", {"bleu_mean": reward}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/reward", {"reward": reward}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/bleu", {"bleu": reward_dict["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
-        self.writer.add_scalars("t_rate", {"t_rate": t_rate}, self.optim.training_step)
+        self.writer.add_scalars("train_t_rate", {"t_rate": t_rate}, self.optim.training_step)
         return loss
 
     def tid2t(self, t_ids):
@@ -540,11 +540,14 @@ class Translator(object):
         reward_qs = cal_reward(all_predictions, golden)
         bl_reward = cal_reward(bl_predictions, golden)
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs["bleu"], "bl_bleu": bl_reward["bleu"]},
+        self.writer.add_scalars("valid_reward/reward", {"reward": reward_qs["bleu"] - bl_reward["bleu"]},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid_dist", {"dist": reward_qs["dist"], "bl_dist": bl_reward["dist"]},
+        self.writer.add_scalars("valid_reward/bleu", {"bleu": reward_qs["bleu"]},
                                 self.optim.training_step)
+        # self.writer.add_scalars("valid_dist", {"dist": reward_qs["dist"], "bl_dist": bl_reward["dist"]},
+        #                         self.optim.training_step)
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": t_rate}, self.optim.training_step)
+        # print("valid over", self.optim.training_step)
 
     def ids2sents(
             self,

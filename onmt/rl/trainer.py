@@ -138,6 +138,7 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
+            sample_method="freq",
             epochs=4,
             samples_n=2,
             report_every=5,
@@ -217,6 +218,7 @@ class Translator(object):
         self.valid_steps = valid_steps
         self.save_checkpoint_steps = save_checkpoint_steps
         self.samples_n = samples_n
+        self.samples_method = sample_method
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
@@ -262,7 +264,9 @@ class Translator(object):
             fields,
             src_reader,
             tgt_reader,
+            # yida
             samples_n=opt.rl_samples,
+            sample_method=opt.sample_method,
             gpu=opt.gpu,
             n_best=opt.n_best,
             min_length=opt.min_length,
@@ -479,7 +483,8 @@ class Translator(object):
             with torch.no_grad():
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
-                batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[i]
+                batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+                k_learned_t[i], sample_method=self.samples_method
             )
 
             # translate, so slow
@@ -487,8 +492,11 @@ class Translator(object):
 
             # cal rewards
             reward_dict = cal_reward(batch_sents, golden_truth)
-            # k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
-            k_reward_qs.append(reward_dict["bleu"])
+            if self.samples_method == "topk":
+                k_reward_qs.append(reward_dict["bleu"])
+            else:
+                k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
+            #
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
@@ -504,12 +512,16 @@ class Translator(object):
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, bl_t[0]
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+            bl_t[0], sample_method=self.samples_method
         )
         baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
         reward_bl_dict = cal_reward(baseline, golden_truth)
-        reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
+        if self.samples_method == "topk":
+            reward_bl = reward_bl_dict["bleu"]
+        else:
+            reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
         # reward_bl = reward_bl_dict["bleu"]
         # reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
@@ -518,25 +530,14 @@ class Translator(object):
         bleu_mean = sum(k_bleu) / len(k_bleu)
         dist_mean = sum(k_dist) / len(k_dist)
 
-
         loss = reward * loss_t
 
         self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
-        self.writer.add_scalars("reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
-        self.writer.add_scalars("reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
-        self.writer.add_scalars("bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
-        self.writer.add_scalars("dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
-        self.writer.add_scalars("t_mean", {"t_mean": t_mode.mean()}, self.optim.training_step)
-        if self.optim.training_step % self.report_every == 0:
-            print(t_mode)
-            print("step", self.optim.training_step)
-            print(" rate:", torch.sum(k_learned_t.gt(0.5), 1).tolist())
-            print("     reward", reward)
-            print("         loss", loss_t.mean().item())
-            print("             qs :", k_reward_qs)
-            print("             bl :", reward_bl)
-            print("     lr", self.optim.learning_rate())
+        self.writer.add_scalars("train_t_mode", {"t_mode": t_mode.mean()}, self.optim.training_step)
         return loss
 
     def tid2t(self, t_ids):
@@ -544,7 +545,7 @@ class Translator(object):
         t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
 
-    def validate(self, valid_iter, data, xlation_builder):
+    def validate(self, valid_iter, data, xlation_builder, attn_debug=False):
         loss_total = 0.0
         step = 0
         all_predictions = []
@@ -563,34 +564,33 @@ class Translator(object):
                 # F-prop through the model.
                 logits_t = self.rl_model(input)
 
-                topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-                learned_t = self.tid2t([topk_ids])
+                dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
+                k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
 
-                loss_t = self.criterion(logits_t, topk_ids.view(-1))
+                loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
 
-                # infer samples
-                attn_debug = False
+                learned_t = self.tid2t([k_topk_ids])
                 batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t[0]
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+                    learned_t[0], sample_method=self.samples_method
                 )
-
-                # translate, so slow
                 batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+
+                # arg
+                topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+                learned_t_arg = self.tid2t([topk_ids])
+                self.model.decoder.init_state(src, memory_bank, enc_states)
+                batch_data_arg = self.translate_batch(
+                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+                    learned_t_arg[0], sample_method=self.samples_method
+                )
+                # translate, so slow
+                batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder)
 
                 # cal rewards
                 all_predictions += batch_sents
                 golden += golden_truth
-
-                dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-                k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-                learned_t_arg = self.tid2t([k_topk_ids])
-                self.model.decoder.init_state(src, memory_bank, enc_states)
-                batch_data_arg = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, learned_t_arg[0]
-                )
-                batch_sents_arg, golden_truth = self.ids2sents(batch_data_arg, xlation_builder)
                 arg_prediction += batch_sents_arg
-
 
                 loss = loss_t.sum()
 
@@ -598,26 +598,24 @@ class Translator(object):
                 step += 1
 
         self.rl_model.train()
-        print(learned_t[0][:5].squeeze())
-        print(" valid rate:", sum(learned_t[0].gt(0.5)).item())
         reward_qs_dict_arg = cal_reward(arg_prediction, golden)
         reward_qs_dict = cal_reward(all_predictions, golden)
-        print("     valid loss:", loss_total / step)
-        print("         valid bleu:", reward_qs_dict["bleu"])
+        if self.samples_method == "freq":
+            reward = (reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100) - \
+                     (reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100)
+        else:
+            reward = reward_qs_dict["bleu"] - reward_qs_dict_arg["bleu"]
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_reward",
-                                {"reward": reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100,
-                                 "reward_arg": reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100},
-                                self.optim.training_step)
-        self.writer.add_scalars("valid_bleu", {"bleu": reward_qs_dict["bleu"],
-                                               "bleu_arg": reward_qs_dict_arg["bleu"]
-                                               }, self.optim.training_step)
-        self.writer.add_scalars("valid_dist", {
-            "dist": reward_qs_dict["dist"],
-            "dist_arg": reward_qs_dict_arg["dist"]
-        }, self.optim.training_step)
+        self.writer.add_scalars("valid_reward/reward", {"reward": reward}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward/bleu",
+                                {"bleu": reward_qs_dict["bleu"],
+                                 "bleu_arg": reward_qs_dict_arg["bleu"]}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward/dist",
+                                {"dist": reward_qs_dict["dist"],
+                                 "dist_arg": reward_qs_dict_arg["dist"]}, self.optim.training_step)
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
                                 self.optim.training_step)
+        # print("valid over", self.optim.training_step)
 
     def ids2sents(
             self,
@@ -710,7 +708,7 @@ class Translator(object):
             src_vocabs,
             max_length,
             # yida RL translate
-            memory_bank, src_lengths, enc_states, src, learned_t, bl,
+            memory_bank, src_lengths, enc_states, src, learned_t, bl, sample_method,
             #
             min_length=0,
             sampling_temp=1.0,
@@ -756,7 +754,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos, learned_t)
+            self.model.pos_generator is not None, vocab_pos, learned_t, sample_method)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -817,30 +815,20 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t, bl=False):
+                        memory_bank, src_lengths, enc_states, src, learned_t, bl=False, sample_method="freq"):
         """Translate a batch of sentences."""
         with torch.no_grad():
-            if self.beam_size == 1:
-                return self._translate_random_sampling(
-                    batch,
-                    src_vocabs,
-                    self.max_length,
-                    # yida RL translate
-                    memory_bank, src_lengths, enc_states, src, learned_t, bl,
-                    #
-                    min_length=self.min_length,
-                    sampling_temp=self.random_sampling_temp,
-                    keep_topk=self.sample_from_topk,
-                    return_attention=attn_debug or self.replace_unk)
-            else:
-                return self._translate_batch(
-                    batch,
-                    src_vocabs,
-                    self.max_length,
-                    min_length=self.min_length,
-                    ratio=self.ratio,
-                    n_best=self.n_best,
-                    return_attention=attn_debug or self.replace_unk)
+            return self._translate_random_sampling(
+                batch,
+                src_vocabs,
+                self.max_length,
+                # yida RL translate
+                memory_bank, src_lengths, enc_states, src, learned_t, bl, sample_method,
+                #
+                min_length=self.min_length,
+                sampling_temp=self.random_sampling_temp,
+                keep_topk=self.sample_from_topk,
+                return_attention=attn_debug or self.replace_unk)
 
     def _run_encoder(self, batch):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \
