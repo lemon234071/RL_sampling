@@ -482,6 +482,7 @@ class Translator(object):
         # reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # # reward_bl = reward_mean
         # reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
+        # TODO
         reward = (reward_dict["bleu"] - reward_dict_bl["bleu"])
         loss = reward * loss_t
 

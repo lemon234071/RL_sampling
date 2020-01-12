@@ -359,7 +359,7 @@ class Translator(object):
             batch_size=batch_size,
             pool_factor=8192,
             batch_size_fn=max_tok_len if batch_type == "tokens" else None,
-            train=False,
+            train=True,
             sort=False,
             sort_within_batch=True
         )
