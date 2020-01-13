@@ -70,7 +70,7 @@ def freq_guide(logits, pos_logits, learned_t, mask=True):
     numerator = high.float() * learned_t + (~high).float() * 0.1
     logits /= numerator
     if mask:
-        high_mask = high.squeeze()
+        high_mask = high.view(-1)
         index = int(0.001 * (logits.shape[-1] - 4))
         logits[high_mask, 4 + index:] = -float('Inf')
         logits[~high_mask, 4: 4 + index] = -float('Inf')

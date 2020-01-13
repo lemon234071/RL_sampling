@@ -70,10 +70,10 @@ def freq_guide(logits, pos_logits, learned_t, mask=True):
     numerator = high.float() * 0.1 + (~high).float() * learned_t
     logits /= numerator
     if mask:
-        high_mask = high.squeeze()
+        high_mask = high.view(-1)
         index = int(0.001 * (logits.shape[-1] - 4))
-        logits[high_mask, 4 + index:] = -float('Inf')
-        logits[~high_mask, 4: 4 + index] = -float('Inf')
+        logits[high_mask, 4 + index:] = -10000
+        logits[~high_mask, 4:4 + index] = -10000
         # if False:
         #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
@@ -124,22 +124,37 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 def topk_guide(logits, pos_logits, learned_k):
     topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
+    # if pos_logits.shape[0]< 2:
+    #     print(2)
     high = topk_pos_ids.eq(4)
-    high_mask = high.squeeze()
+    numerator = high.float() + (~high).float() * 0.1
+    logits /= numerator
+
+    high_mask = high.view(-1)
     index = int(0.001 * (logits.shape[-1] - 4))
-    # logits[high_mask, 4 + index:] = -10000
+    assert len(logits[high_mask, 4 + index:].shape) == 2
+    assert len(logits[~high_mask, 4:4 + index].shape) == 2
+    logits[high_mask, 4 + index:] = -10000
+    logits[~high_mask, 4:4 + index] = -10000
 
     # speed topk
-    for k in learned_k.unique(sorted=False):
-        index_k = learned_k.eq(k)
-        index_kh = (index_k & high).view(-1)
-        if not index_kh.any():
-            continue
-        sub_logits = logits[index_kh, :5 + index]
-        top_values, top_indices = torch.topk(sub_logits, k.int().item(), dim=-1)
-        kth_best = top_values[:, -1:]
-        index_lt = logits[index_kh, :].lt(kth_best)
-        logits[index_kh] = logits[index_kh].masked_fill(index_lt, -10000)
+    if high_mask.any():
+        top_values, sorted_indices = torch.sort(logits[high_mask, :4 + index], dim=-1, descending=True)
+        kth_best = top_values.gather(-1, (learned_k[high_mask].long() - 1))
+        index_lt = logits[high_mask, :4 + index].lt(kth_best)
+        logits[high_mask, :4 + index] = logits[high_mask, :4 + index].masked_fill(index_lt, -10000)
+
+    # for k in learned_k.unique(sorted=False):
+    #     index_k = learned_k.eq(k)
+    #     index_kh = (index_k & high).view(-1)
+    #     if not index_kh.any():
+    #         continue
+    #     sub_logits = logits[index_kh, :5 + index]
+    #     top_values, top_indices = torch.topk(sub_logits, k.int().item(), dim=-1)
+    #     kth_best = top_values[:, -1:]
+    #     index_lt = logits[index_kh, :].lt(kth_best)
+    #     logits[index_kh] = logits[index_kh].masked_fill(index_lt, -10000)
+
     # for i, k in enumerate(learned_k):
     #     if high[i]:
     #         top_values, top_indices = torch.topk(logits[i, :5 + index], k.int().item(), dim=-1)

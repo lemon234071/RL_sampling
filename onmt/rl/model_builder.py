@@ -164,7 +164,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     )
 
     # Build Generator.
-    output_size = 50 if model_opt.sample_method == "topk" else 20
+    output_size = 54 if model_opt.sample_method == "topk" else 20
     generator = nn.Sequential(
         nn.Linear(model_opt.enc_rnn_size,
                   output_size),  # len(fields["tgt"].base_field.vocab)
