@@ -116,5 +116,5 @@ checkpoint/
 log_dir/
 result/
 data*/
-tool_data/
+data_tool/
 rl_checkpoint/

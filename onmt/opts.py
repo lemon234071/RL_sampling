@@ -31,9 +31,8 @@ def model_opts(parser):
     group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
               help='Word embedding size for src and tgt.')
     # yida opts
-    group.add('--pos_vec_size', '-pos_vec_size', type=int, default=256,
+    group.add('--pos_vec_size', '-pos_vec_size', type=int, default=128,
               help='Pos embedding size for src and tgt.')
-
     group.add('--share_decoder_embeddings', '-share_decoder_embeddings',
               action='store_true',
               help="Use a shared weight matrix for the input and "
@@ -131,13 +130,15 @@ def model_opts(parser):
               choices=['source', 'target', 'both'],
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
-    # TODO(yida)
+    # yida model
     group.add('--pos_gen', '-pos_gen', action="store_true",
               help="Use or not pos_gen.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
               help="Use or not pos_enc.")
     group.add('--pos_dec', '-pos_dec', action="store_true",
               help="Use or not pos_dec.")
+    group.add('--statistic', '-statistic', action='store_true',
+              help="statistic of probs of freq. words.")
 
     # Attention options
     group = parser.add_argument_group('Model- Attention')
@@ -746,7 +747,8 @@ def translate_opts(parser):
               help="Using grayscale image can training "
                    "model faster and smaller")
 
-    # yida translate
+    # yida sampling
+    group.add('--infer', '-infer', action='store_true', help="infer.")
     group.add('--sample_method', '-sample_method', default='freq',
               choices=["freq", "topk", "topp"],
               help="")

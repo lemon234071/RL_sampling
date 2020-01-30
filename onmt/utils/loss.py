@@ -7,6 +7,7 @@ from __future__ import division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tensorboardX import SummaryWriter
 
 import onmt
 from onmt.modules.sparse_activations import LogSparsemax
@@ -29,7 +30,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
 
     if opt.lambda_coverage != 0:
         assert opt.coverage_attn, "--coverage_attn needs to be set in " \
-            "order to use --lambda_coverage != 0"
+                                  "order to use --lambda_coverage != 0"
 
     if opt.copy_attn:
         criterion = onmt.modules.CopyGeneratorLoss(
@@ -63,7 +64,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, pos_loss_gen, lambda_coverage=opt.lambda_coverage)
+            criterion, loss_gen, pos_loss_gen, opt.statistic, lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -89,11 +90,11 @@ class LossComputeBase(nn.Module):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, pos_generator):
+    def __init__(self, criterion, generator, tag_generator):
         super(LossComputeBase, self).__init__()
         self.criterion = criterion
         self.generator = generator
-        self.pos_generator = pos_generator
+        self.tag_generator = tag_generator
 
     @property
     def padding_idx(self):
@@ -189,7 +190,7 @@ class LossComputeBase(nn.Module):
         non_padding = target.ne(self.padding_idx)
         num_correct = pred.eq(target).masked_select(non_padding).sum().item()
         num_non_padding = non_padding.sum().item()
-        #return onmt.utils.Statistics(loss, num_non_padding, num_correct)
+        # return onmt.utils.Statistics(loss, num_non_padding, num_correct)
         # TODO(yida) loss
         return onmt.utils.Statistics(loss["loss"].item(), loss["pos_loss"].item(), num_non_padding, num_correct)
 
@@ -206,6 +207,7 @@ class LabelSmoothingLoss(nn.Module):
     KL-divergence between q_{smoothed ground truth prob.}(w)
     and p_{prob. computed by model}(w) is minimized.
     """
+
     def __init__(self, label_smoothing, tgt_vocab_size, ignore_index=-100):
         assert 0.0 < label_smoothing <= 1.0
         self.ignore_index = ignore_index
@@ -236,19 +238,22 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, pos_generator, normalization="sents",
+    def __init__(self, criterion, generator, tag_generator, sta, normalization="sents",
                  lambda_coverage=0.0):
-        super(NMTLossCompute, self).__init__(criterion, generator, pos_generator)
+        super(NMTLossCompute, self).__init__(criterion, generator, tag_generator)
         self.lambda_coverage = lambda_coverage
+        self.sta = sta
+        self.writer = SummaryWriter()
+        self.step = 0
 
     def _make_shard_state(self, batch, output, range_, attns=None):
         # TODO(yida) loss
-        if self.pos_generator is not None:
+        if self.tag_generator is not None:
             shard_state = {
                 "output": output,
                 "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
-                "pos_output": output.clone(),
-                "pos_target": batch.pos_tgt[range_[0] + 1: range_[1], :, 0]
+                "tag_output": output.clone(),
+                "tag_target": batch.pos_tgt[range_[0] + 1: range_[1], :, 0]
             }
         else:
             shard_state = {
@@ -260,9 +265,9 @@ class NMTLossCompute(LossComputeBase):
             std = attns.get("std", None)
             assert attns is not None
             assert std is not None, "lambda_coverage != 0.0 requires " \
-                "attention mechanism"
+                                    "attention mechanism"
             assert coverage is not None, "lambda_coverage != 0.0 requires " \
-                "coverage attention"
+                                         "coverage attention"
 
             shard_state.update({
                 "std_attn": attns.get("std"),
@@ -270,7 +275,7 @@ class NMTLossCompute(LossComputeBase):
             })
         return shard_state
 
-    def _compute_loss(self, batch, output, target, pos_output=None, pos_target=None, std_attn=None,
+    def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
 
         bottled_output = self._bottle(output)
@@ -290,11 +295,27 @@ class NMTLossCompute(LossComputeBase):
         loss_dict = {"loss": loss,
                      "pos_loss": torch.tensor(0).cuda(),
                      "pos_de_loss": torch.tensor(0).cuda()}
-        if self.pos_generator is not None:
-            pos_bottled_output = self._bottle(pos_output)
-            pos_scores = self.pos_generator(pos_bottled_output)
-            pos_gtruth = pos_target.view(-1)
-            loss_dict["pos_loss"] = self.criterion(pos_scores, pos_gtruth)
+        if self.tag_generator is not None:
+            tag_bottled_output = self._bottle(tag_output)
+            tag_scores = self.tag_generator(tag_bottled_output)
+            tag_gtruth = tag_target.view(-1)
+            loss_dict["pos_loss"] = self.criterion(tag_scores, tag_gtruth)
+            # sta
+            if self.sta:
+                argmax_scores, argmax_ids = scores.topk(1, dim=-1)
+                log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
+                low_index = tag_gtruth.eq(5)
+                low_prob = torch.exp(log_prob[low_index])
+                arg_low = torch.exp(argmax_scores[low_index])
+                high_prob = torch.exp(log_prob[~low_index])
+                arg_high = torch.exp(argmax_scores[~low_index])
+                self.writer.add_scalars("sta_probs/low_prob",
+                                        {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                                        self.step)
+                self.writer.add_scalars("sta_probs/high_prob",
+                                        {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
+                                        self.step)
+                self.step += 1
         stats = self._stats(loss_dict, scores, gtruth)
         return sum(list(loss_dict.values())), stats
 

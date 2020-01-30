@@ -126,7 +126,7 @@ class TranslationBuilder(object):
                 src_vocab = self.data.src_vocabs[inds[b]] \
                     if self.data.src_vocabs else None
                 src_raw = self.data.examples[inds[b]].src[0]
-                tgt_raw = self.data.examples[inds[b]].tgt[0]
+                tgt_raw = self.data.examples[inds[b]].tgt[0] if hasattr(self.data.examples[inds[b]], "tgt") else None
             else:
                 src_vocab = None
                 src_raw = None

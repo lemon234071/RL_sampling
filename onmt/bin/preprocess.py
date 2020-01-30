@@ -4,21 +4,21 @@
     Pre-process Data / features files and build vocabulary
 """
 import codecs
-import glob
 import gc
-import torch
+import glob
 from collections import Counter, defaultdict
-
-from onmt.utils.logging import init_logger, logger
-from onmt.utils.misc import split_corpus
-import onmt.inputters as inputters
-import onmt.opts as opts
-from onmt.utils.parse import ArgumentParser
-from onmt.inputters.inputter import _build_fields_vocab,\
-                                    _load_vocab
-
 from functools import partial
 from multiprocessing import Pool
+
+import torch
+
+import onmt.inputters as inputters
+import onmt.opts as opts
+from onmt.inputters.inputter import _build_fields_vocab, \
+    _load_vocab
+from onmt.utils.logging import init_logger, logger
+from onmt.utils.misc import split_corpus
+from onmt.utils.parse import ArgumentParser
 
 
 def check_existing_pt_files(opt, corpus_type, ids, existing_fields):
@@ -42,10 +42,11 @@ def check_existing_pt_files(opt, corpus_type, ids, existing_fields):
             existing_shards += [maybe_id]
     return existing_shards
 
+
 # TODO(yida) preprocess
 def process_one_shard(corpus_params, params):
-    corpus_type, fields, src_reader, tgt_reader, opt, existing_fields,\
-        src_vocab, tgt_vocab = corpus_params
+    corpus_type, fields, src_reader, tgt_reader, opt, existing_fields, \
+    src_vocab, tgt_vocab = corpus_params
     # TODO(yida) preprocess
     i, (src_shard, tgt_shard, pos_src_shard, pos_tgt_shard, maybe_id, filter_pred) = params
     # create one counter per shard
@@ -92,7 +93,7 @@ def process_one_shard(corpus_params, params):
         shard_base = corpus_type + "_" + maybe_id
     else:
         shard_base = corpus_type
-    data_path = "{:s}.{:s}.{:d}.pt".\
+    data_path = "{:s}.{:s}.{:d}.pt". \
         format(opt.save_data, shard_base, i)
 
     logger.info(" * saving %sth %s data shard to %s."
@@ -146,7 +147,7 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
         tgts = [opt.valid_tgt]
         ids = [None]
         # TODO(yida) prerocess
-        pos_srcs= opt.valid_pos_src
+        pos_srcs = opt.valid_pos_src
         pos_tgts = opt.valid_pos_tgt
 
     src_vocab, tgt_vocab, existing_fields = maybe_load_vocab(
@@ -172,7 +173,7 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
                                    .format(maybe_id))
                 else:
                     if corpus_type == "train":
-                        assert existing_fields is not None,\
+                        assert existing_fields is not None, \
                             ("A 'vocab.pt' file should be passed to "
                              "`-src_vocab` when adding a corpus to "
                              "a set of already existing shards.")

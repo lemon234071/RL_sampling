@@ -122,6 +122,7 @@ class Translator(object):
             beam_size=30,
             random_sampling_topk=1,
             random_sampling_temp=1,
+            sta=False,
             stepwise_penalty=None,
             dump_beam=False,
             block_ngram_repeat=0,
@@ -213,7 +214,8 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
-        self.epochs = epochs
+        self.sta = sta
+        self.epochs = 1 if sta else epochs
         self.report_every = report_every
         self.valid_steps = valid_steps
         self.save_checkpoint_steps = save_checkpoint_steps
@@ -267,6 +269,8 @@ class Translator(object):
             # yida
             samples_n=opt.rl_samples,
             sample_method=opt.sample_method,
+            sta=opt.statistic,
+            #
             gpu=opt.gpu,
             n_best=opt.n_best,
             min_length=opt.min_length,
@@ -311,17 +315,69 @@ class Translator(object):
             gs = [0] * batch_size
         return gs
 
-    def rltrain(
+    def infer(
+            self,
+            test_src,
+            batch_size=None,
+            batch_type="sents"):
+        if batch_size is None:
+            raise ValueError("batch_size must be set")
+
+        test_data = inputters.Dataset(
+            self.fields,
+            readers=([self.src_reader]),
+            data=[("src", test_src)],
+            dirs=[None],
+            sort_key=inputters.str2sortkey[self.data_type],
+            filter_pred=self._filter_pred
+        )
+
+        test_iter = inputters.OrderedIterator(
+            dataset=test_data,
+            device=self._dev,
+            batch_size=batch_size,
+            batch_size_fn=max_tok_len if batch_type == "tokens" else None,
+            train=False,
+            sort=False,
+            sort_within_batch=True,
+            shuffle=False
+        )
+
+        xlation_builder = onmt.rl.TranslationBuilder(
+            test_data, self.fields, self.n_best, self.replace_unk, False,
+            self.phrase_table
+        )
+
+        # # Statistics
+        counter = count(1)
+        pred_score_total, pred_words_total = 0, 0
+
+        all_predictions = []
+
+        start_time = time.time()
+
+        self.validate(test_iter, test_data, xlation_builder, pred_words_total, infer=True)
+        end_time = time.time()
+
+        if self.report_time:
+            total_time = end_time - start_time
+            self._log("Total translation time (s): %f" % total_time)
+            self._log("Average translation time (s): %f" % (
+                    total_time / len(all_predictions)))
+            self._log("Tokens per second: %f" % (
+                    pred_words_total / total_time))
+
+    def train(
             self,
             train_src,
             train_tgt,
+            train_tag_tgt_shard,
             valid_src,
             valid_tgt,
+            valid_tag_tgt_shard,
             src_dir=None,
             batch_size=None,
-            batch_type="sents",
-            attn_debug=False,
-            phrase_table=""):
+            batch_type="sents"):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -346,9 +402,9 @@ class Translator(object):
         train_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt)],
-            dirs=[src_dir, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]),
+            data=[("src", train_src), ("tgt", train_tgt), ("tag_tgt", train_tag_tgt_shard)],
+            dirs=[src_dir, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -367,9 +423,9 @@ class Translator(object):
         valid_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt)],
-            dirs=[src_dir, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]),
+            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_tgt", valid_tag_tgt_shard)],
+            dirs=[src_dir, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -547,7 +603,7 @@ class Translator(object):
         t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
 
-    def validate(self, valid_iter, data, xlation_builder, attn_debug=False):
+    def validate(self, valid_iter, data, xlation_builder, infer=False, attn_debug=False):
         loss_total = 0.0
         step = 0
         all_predictions = []
@@ -565,18 +621,21 @@ class Translator(object):
 
                 # F-prop through the model.
                 logits_t = self.rl_model(input)
+                if not (infer or self.sta):
+                    dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
+                    k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+                    learned_t = self.tid2t([k_topk_ids])
+                    batch_data = self.translate_batch(
+                        batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+                        learned_t[0], sample_method=self.samples_method
+                    )
+                    batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+                    all_predictions += batch_sents
+                    golden += golden_truth
 
-                dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-                k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-
-                loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
-
-                learned_t = self.tid2t([k_topk_ids])
-                batch_data = self.translate_batch(
-                    batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                    learned_t[0], sample_method=self.samples_method
-                )
-                batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+                    loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
+                    loss = loss_t.sum()
+                    loss_total += loss
 
                 # arg
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
@@ -584,22 +643,15 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
                 batch_data_arg = self.translate_batch(
                     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                    learned_t_arg[0], sample_method=self.samples_method
-                )
+                    learned_t_arg[0], sample_method=self.samples_method, sta=self.sta)
                 # translate, so slow
-                batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder)
+                if not self.sta:
+                    batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
+                    arg_prediction += batch_sents_arg
 
-                # cal rewards
-                all_predictions += batch_sents
-                golden += golden_truth
-                arg_prediction += batch_sents_arg
-
-                loss = loss_t.sum()
-
-                loss_total += loss
                 step += 1
-
-        self.rl_model.train()
+        if infer:
+            return arg_prediction
         reward_qs_dict_arg = cal_reward(arg_prediction, golden)
         reward_qs_dict = cal_reward(all_predictions, golden)
         if self.samples_method == "freq":
@@ -618,11 +670,13 @@ class Translator(object):
         self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
                                 self.optim.training_step)
         # print("valid over", self.optim.training_step)
+        self.rl_model.train()
 
     def ids2sents(
             self,
             batch_data,
-            xlation_builder):
+            xlation_builder,
+            infer=False):
         """
 
         :param batch_data:
@@ -644,8 +698,9 @@ class Translator(object):
                             for pred in trans.pred_sents[:self.n_best]]
             batch_predictions += [n_best_preds]
             batch_gt += [trans.tgt_raw]
-            # self.out_file.write('\n'.join(n_best_preds) + '\n')
-            # self.out_file.flush()
+            if infer:
+                self.out_file.write('\n'.join(n_best_preds) + '\n')
+                self.out_file.flush()
         return batch_predictions, batch_gt
 
     def _translate_random_sampling(
@@ -654,7 +709,7 @@ class Translator(object):
             src_vocabs,
             max_length,
             # yida RL translate
-            memory_bank, src_lengths, enc_states, src, learned_t, bl, sample_method,
+            memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
             #
             min_length=0,
             sampling_temp=1.0,
@@ -724,7 +779,7 @@ class Translator(object):
             )
 
             # yida tranlate
-            random_sampler.advance(log_probs, attn, pos_log_probs, bl)
+            random_sampler.advance(log_probs, attn, pos_log_probs, sta)
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
                 random_sampler.update_finished()
@@ -760,7 +815,7 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t, bl=False, sample_method="freq"):
+                        memory_bank, src_lengths, enc_states, src, learned_t, sta=False, sample_method="freq"):
         """Translate a batch of sentences."""
         with torch.no_grad():
             return self._translate_random_sampling(
@@ -768,7 +823,7 @@ class Translator(object):
                 src_vocabs,
                 self.max_length,
                 # yida RL translate
-                memory_bank, src_lengths, enc_states, src, learned_t, bl, sample_method,
+                memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
                 #
                 min_length=self.min_length,
                 sampling_temp=self.random_sampling_temp,

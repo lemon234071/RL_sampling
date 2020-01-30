@@ -166,25 +166,27 @@ def topk_guide(logits, pos_logits, learned_k):
 
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method):
-    # logits, _ = get_topp(logits, top_p=0.9)
-    # logits /= 1
-
-    # entropy
-    # logits = pos_guide(logits, pos_logits)
-
-    ## freq x
-    if sample_method == "freq":
-        logits = freq_guide(logits, pos_logits, learned_t)
-    elif sample_method == "topk":
-        logits = topk_guide(logits, pos_logits, learned_t * 10)
+    if sample_method == "greedy":
+        topk_scores, topk_ids = logits.topk(1, dim=-1)
     else:
-        raise Exception("wrong sample method")
+        # logits, _ = get_topp(logits, top_p=0.9)
+        # logits /= 1
 
-    dist = torch.distributions.Multinomial(
-        logits=logits, total_count=1)
-    topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-    topk_scores = logits.gather(dim=1, index=topk_ids)
+        # entropy
+        # logits = pos_guide(logits, pos_logits)
 
+        ## freq x
+        if sample_method == "freq":
+            logits = freq_guide(logits, pos_logits, learned_t)
+        elif sample_method == "topk":
+            logits = topk_guide(logits, pos_logits, learned_t * 10)
+        else:
+            raise Exception("wrong sample method")
+
+        dist = torch.distributions.Multinomial(
+            logits=logits, total_count=1)
+        topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+        topk_scores = logits.gather(dim=1, index=topk_ids)
     return topk_ids, topk_scores
 
 
@@ -301,7 +303,7 @@ class RandomSampling(DecodeStrategy):
         self.sample_method = sample_method
 
     # yida translate
-    def advance(self, log_probs, attn, pos_log_probs, bl):
+    def advance(self, log_probs, attn, pos_log_probs, sta):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -325,13 +327,8 @@ class RandomSampling(DecodeStrategy):
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         # yida translate
-        dynamic = not bl
-        if not (dynamic and self.pos_gen):
-            topk_ids, self.topk_scores = sample_with_temperature(
-                log_probs, self.sampling_temp, self.keep_topk)
-        else:
-            topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t, self.sample_method)
+        topk_ids, self.topk_scores = \
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 

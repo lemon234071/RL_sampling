@@ -55,7 +55,7 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
                                 map_location=lambda storage, loc: storage)
         model_opt = ArgumentParser.ckpt_model_opts(checkpoint["opt"])
         ArgumentParser.update_model_opts(model_opt)
-        ArgumentParser.validate_model_opts(model_opt)
+        # ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
         vocab = checkpoint['vocab']
     else:
@@ -103,21 +103,36 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     src_shards = split_corpus(opt.src, opt.shard_size)
     tgt_shards = split_corpus(opt.tgt, opt.shard_size) \
         if opt.tgt is not None else repeat(None)
-    valid_src_shards = split_corpus(opt.valid_src, opt.shard_size)
-    valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size)
-    shard_pairs = zip(src_shards, tgt_shards, valid_src_shards, valid_tgt_shards)
+    if opt.infer:
+        for i, src_shard in enumerate(src_shards):
+            logger.info("Translating shard %d." % i)
+            rltor.infer(
+                src_shard,
+                batch_size=opt.batch_size,
+                batch_type=opt.batch_type)
+    else:
+        valid_src_shards = split_corpus(opt.valid_src, opt.shard_size)
+        valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size)
 
-    for i, (train_src_shard, train_tgt_shard,
-            valid_src_shard, valid_tgt_shard) in enumerate(shard_pairs):
-        logger.info("Translating shard %d." % i)
-        rltor.rltrain(
-            train_src_shard,
-            train_tgt_shard,
-            valid_src_shard,
-            valid_tgt_shard,
-            src_dir=opt.src_dir,
-            batch_size=opt.batch_size,
-            batch_type=opt.batch_type,
-            attn_debug=opt.attn_debug
-        )
+        tag_tgt_shards = split_corpus(opt.tag_tgt, opt.shard_size) \
+            if opt.tag_tgt is not None else repeat(None)
+        valid_tag_tgt_shards = split_corpus(opt.valid_tag_tgt, opt.shard_size) \
+            if opt.valid_tag_tgt is not None else repeat(None)
 
+        shard_pairs = zip(src_shards, tgt_shards, tag_tgt_shards,
+                          valid_src_shards, valid_tgt_shards, valid_tag_tgt_shards)
+
+        for i, (train_src_shard, train_tgt_shard, train_tag_tgt_shard,
+                valid_src_shard, valid_tgt_shard, valid_tag_tgt_shard) in enumerate(shard_pairs):
+            logger.info("Learning shard %d." % i)
+            rltor.train(
+                train_src_shard,
+                train_tgt_shard,
+                train_tag_tgt_shard,
+                valid_src_shard,
+                valid_tgt_shard,
+                valid_tag_tgt_shard,
+                src_dir=opt.src_dir,
+                batch_size=opt.batch_size,
+                batch_type=opt.batch_type
+            )

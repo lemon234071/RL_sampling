@@ -308,7 +308,7 @@ class Translator(object):
             gs = [0] * batch_size
         return gs
 
-    def rltrain(
+    def train(
             self,
             train_src,
             train_tgt,

@@ -126,7 +126,7 @@ def get_fields(
 
     pos_tgt_field_kwargs = {"n_feats": n_tgt_feats,
                         "include_lengths": False,
-                        "pad": pad, "bos": bos, "eos": eos,
+                            "pad": pad, "bos": bos, "eos": None,
                         "truncate": tgt_truncate,
                         "base_name": "pos_tgt"}
     fields["pos_tgt"] = fields_getters["text"](**pos_tgt_field_kwargs)
