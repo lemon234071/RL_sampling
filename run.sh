@@ -13,7 +13,7 @@ elif [ "$1" = "train" ]; then
     echo "Input arg 2 Is Error: $2."
   fi
 elif [ "$1" = "infer" ]; then
-  python3 translate.py -gpu 2 -model "$2" -output result/"$DATA_DIR"_"$DATASET"_"$3".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-test.txt -max_length 30
+  python3 translate.py -gpu 2 -model "$2" -output result/"$DATA_DIR"_"$DATASET"_"$3".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-test.txt -pos_src "$DATA_DIR"/"$DATASET"-src-test.txt -max_length 30
 else
   echo "Input arg 1 Is Error: $1."
 fi
