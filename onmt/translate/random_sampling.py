@@ -67,13 +67,13 @@ def freq_guide(logits, pos_logits, leanred_t, mask=True):
     high = topk_pos_ids.eq(4)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * leanred_t + (~high).float() * 1
+    numerator = high.float() * leanred_t + (~high).float() * 1.1
     logits /= numerator
     if mask:
         high_mask = high.view(-1)
         index = int(0.001 * (logits.shape[-1] - 4))
-        logits[high_mask, 4 + index:] = -float('Inf')
-        logits[~high_mask, 4: 4 + index] = -float('Inf')
+        logits[high_mask, 4 + index:] = -10000
+        logits[~high_mask, 4: 4 + index] = -10000
         # if False:
         #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
@@ -123,20 +123,29 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, leanred_t):
-    # logits, _ = get_topp(logits, top_p=0.9)
-    # logits /= 1
+def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method="greedy"):
+    print(sample_method, "t:", learned_t)
+    if sample_method == "greedy":
+        topk_scores, topk_ids = logits.topk(1, dim=-1)
+    else:
+        # logits, _ = get_topp(logits, top_p=0.9)
+        # logits /= 1
 
-    # entropy
-    # logits = pos_guide(logits, pos_logits)
+        # entropy
+        # logits = pos_guide(logits, pos_logits)
 
-    ## freq x
-    logits = freq_guide(logits, pos_logits, leanred_t)
+        ## freq x
+        if sample_method == "freq":
+            logits = freq_guide(logits, pos_logits, learned_t)
+        elif sample_method == "topk":
+            logits = topk_guide(logits, pos_logits, learned_t * 10)
+        else:
+            raise Exception("wrong sample method")
 
-    dist = torch.distributions.Multinomial(
-        logits=logits, total_count=1)
-    topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-    topk_scores = logits.gather(dim=1, index=topk_ids)
+        dist = torch.distributions.Multinomial(
+            logits=logits, total_count=1)
+        topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+        topk_scores = logits.gather(dim=1, index=topk_ids)
 
     return topk_ids, topk_scores
 
@@ -271,14 +280,16 @@ class RandomSampling(DecodeStrategy):
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
-        # yida translate
-        dynamic = True
-        if not (dynamic and self.pos_gen):
-            topk_ids, self.topk_scores = sample_with_temperature(
-                log_probs, self.sampling_temp, self.keep_topk)
-        else:
-            topk_ids, self.topk_scores = \
-                sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
+        # # yida translate
+        # dynamic = True
+        # if not (dynamic and self.pos_gen):
+        #     topk_ids, self.topk_scores = sample_with_temperature(
+        #         log_probs, self.sampling_temp, self.keep_topk)
+        # else:
+        #     topk_ids, self.topk_scores = \
+        #         sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
+        topk_ids, self.topk_scores = \
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
 
         self.is_finished = topk_ids.eq(self.eos)
 
