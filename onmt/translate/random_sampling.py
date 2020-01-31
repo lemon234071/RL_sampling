@@ -124,7 +124,6 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method="greedy"):
-    print(sample_method, "t:", learned_t)
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     else:

@@ -568,10 +568,10 @@ class Translator(object):
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate
-        results["entropy"] = random_sampler.entropy
+        # results["entropy"] = random_sampler.entropy
         if self.model.pos_generator is not None:
             results["pos_predictions"] = random_sampler.pos_predictions
-            results["pos_entropy"] = random_sampler.pos_entropy
+            #results["pos_entropy"] = random_sampler.pos_entropy
         return results
 
     def translate_batch(self, batch, src_vocabs, attn_debug, vocab_pos):
