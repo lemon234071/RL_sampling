@@ -87,12 +87,96 @@ class TranslationBuilder(object):
                                     tokens[i] = line.split('|||')[1].strip()
         return tokens, pos_tokens
 
-    def from_batch(self, translation_batch):
+    def from_batch1(self, translation_batch):
         batch = translation_batch["batch"]
         # yida translate
-        assert(len(translation_batch["gold_score"]) ==
-               len(translation_batch["predictions"]) ==
-               len(translation_batch["entropy"]))
+        assert (len(translation_batch["gold_score"]) ==
+                len(translation_batch["predictions"]))
+        if "pos_predictions" in translation_batch:
+            assert (len(translation_batch["gold_score"]) ==
+                    len(translation_batch["pos_predictions"]))
+        batch_size = batch.batch_size
+
+        preds, pred_score, attn, gold_score, indices = list(zip(
+            *sorted(zip(translation_batch["predictions"],
+                        translation_batch["scores"],
+                        translation_batch["attention"],
+                        translation_batch["gold_score"],
+                        batch.indices.data),
+                    key=lambda x: x[-1])))
+        # yida translate
+        if "pos_predictions" in translation_batch:
+            pos_preds, pos_indices = list(zip(
+                *sorted(zip(translation_batch["pos_predictions"],
+                            batch.indices.data),
+                        key=lambda x: x[-1])))
+            assert pos_indices == indices
+
+        # Sorting
+        inds, perm = torch.sort(batch.indices)
+        if self._has_text_src:
+            src = batch.src[0][:, :, 0].index_select(1, perm)
+        else:
+            src = None
+        tgt = batch.tgt[:, :, 0].index_select(1, perm) \
+            if self.has_tgt else None
+
+        translations = []
+        for b in range(batch_size):
+            if self._has_text_src:
+                src_vocab = self.data.src_vocabs[inds[b]] \
+                    if self.data.src_vocabs else None
+                src_raw = self.data.examples[inds[b]].src[0]
+            else:
+                src_vocab = None
+                src_raw = None
+            # yida translate
+            if "pos_predictions" not in translation_batch:
+                pred_sents = [self._build_target_tokens(
+                    src[:, b] if src is not None else None,
+                    src_vocab, src_raw,
+                    preds[b][n], attn[b][n])
+                    for n in range(self.n_best)]
+            else:
+                temp_sents = [self._build_target_tokens_pos(
+                    src[:, b] if src is not None else None,
+                    src_vocab, src_raw,
+                    preds[b][n], pos_preds[b][n],
+                    attn[b][n])
+                    for n in range(self.n_best)]
+                pred_sents, pos_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
+            gold_sent = None
+            if tgt is not None:
+                gold_sent = self._build_target_tokens(
+                    src[:, b] if src is not None else None,
+                    src_vocab, src_raw,
+                    tgt[1:, b] if tgt is not None else None, None)
+
+            # yida translate
+            if "pos_predictions" not in translation_batch:
+                translation = Translation(
+                    src[:, b] if src is not None else None,
+                    src_raw, pred_sents, attn[b], pred_score[b],
+                    gold_sent, gold_score[b],
+                )
+            else:
+                translation = Translation(
+                    src[:, b] if src is not None else None,
+                    src_raw, pred_sents,
+                    attn[b], pred_score[b],
+                    gold_sent, gold_score[b],
+                    pos_pred_sents
+                )
+            translations.append(translation)
+
+        return translations
+
+    def from_batch1(self, translation_batch):
+        batch = translation_batch["batch"]
+        # yida translate
+        assert (len(translation_batch["gold_score"]) ==
+                len(translation_batch["predictions"]) ==
+                len(translation_batch["entropy"]))
         if "pos_predictions" in translation_batch:
             assert (len(translation_batch["gold_score"]) ==
                     len(translation_batch["pos_predictions"]) ==
