@@ -87,7 +87,7 @@ class TranslationBuilder(object):
                                     tokens[i] = line.split('|||')[1].strip()
         return tokens, pos_tokens
 
-    def from_batch1(self, translation_batch):
+    def from_batch(self, translation_batch):
         batch = translation_batch["batch"]
         # yida translate
         assert (len(translation_batch["gold_score"]) ==
