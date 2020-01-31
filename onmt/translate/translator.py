@@ -435,7 +435,7 @@ class Translator(object):
         end_time = time.time()
 
         # yida translate
-        print(cnt_high / cnt_line)
+        # print(cnt_high / cnt_line)
 
         if self.report_score:
             msg = self._report_score('PRED', pred_score_total,
