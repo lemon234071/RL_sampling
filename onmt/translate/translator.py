@@ -383,7 +383,7 @@ class Translator(object):
                 self.out_file.write('\n'.join(n_best_preds) + '\n')
                 self.out_file.flush()
                 # yida translate
-                all_entropy += [trans.entropy_sents.tolist()]
+                # all_entropy += [trans.entropy_sents.tolist()]
                 if self.model.pos_generator is not None:
                     n_best_pos_preds = [" ".join(pos_pred)
                                         for pos_pred in trans.pos_pred_sents[:self.n_best]]
@@ -398,7 +398,7 @@ class Translator(object):
                     if temp_seq:
                         cnt_high += sum(temp_seq) / len(temp_seq)
                     cnt_line += 1
-                    all_pos_entropy += [trans.pos_entropy_sents.tolist()]
+                    # all_pos_entropy += [trans.pos_entropy_sents.tolist()]
 
                 if self.verbose:
                     sent_number = next(counter)
