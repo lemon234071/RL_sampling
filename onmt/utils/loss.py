@@ -300,25 +300,17 @@ class NMTLossCompute(LossComputeBase):
             tag_scores = self.tag_generator(tag_bottled_output)
             tag_gtruth = tag_target.view(-1)
             loss_dict["pos_loss"] = self.criterion(tag_scores, tag_gtruth)
-            # sta
-            if self.sta:
-                # acc
-                pred = tag_scores.max(1)[1]
-                non_padding = tag_gtruth.ne(self.padding_idx)
-                num_correct = pred.eq(tag_gtruth).masked_select(non_padding).sum().item()
-                num_non_padding = non_padding.sum().item()
-                self.writer.add_scalars("sta_acc",
-                                        {"acc": 100 * num_correct / num_non_padding},
-                                        self.step)
         if self.sta:
             # probs
             argmax_scores, argmax_ids = scores.topk(1, dim=-1)
             log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
             index = int(0.001 * (scores.shape[-1] - 4)) + 4
-            high_index = gtruth.lt(index)
+            low_index = ~gtruth.lt(index)
+            non_pad = gtruth.ne(self.padding_idx)
+            high_index = (~low_index) & non_pad
             # low_index = tag_gtruth.eq(5)
-            low_prob = torch.exp(log_prob[~high_index])
-            arg_low = torch.exp(argmax_scores[~high_index])
+            low_prob = torch.exp(log_prob[low_index])
+            arg_low = torch.exp(argmax_scores[low_index])
             high_prob = torch.exp(log_prob[high_index])
             arg_high = torch.exp(argmax_scores[high_index])
             self.writer.add_scalars("sta_probs/low_prob",
@@ -327,6 +319,23 @@ class NMTLossCompute(LossComputeBase):
             self.writer.add_scalars("sta_probs/high_prob",
                                     {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
                                     self.step)
+            if self.tag_generator is not None:
+                # acc
+                pred = tag_scores.max(1)[1]
+                non_padding = tag_gtruth.ne(self.padding_idx)
+                num_correct = pred.eq(tag_gtruth).masked_select(non_padding).sum().item()
+                num_non_padding = non_padding.sum().item()
+                self.writer.add_scalars("sta_acc",
+                                        {"acc": 100 * num_correct / num_non_padding},
+                                        self.step)
+                # align
+                preds_words = scores.max(1)[1].lt(index)
+                preds_tag = tag_scores.max(1)[1].eq(4)
+                num_correct_tag = preds_words.eq(preds_tag).masked_select(non_padding).sum().item()
+                self.writer.add_scalars("sta_align",
+                                        {"align_acc": 100 * num_correct_tag / num_non_padding},
+                                        self.step)
+
         self.step += 1
         stats = self._stats(loss_dict, scores, gtruth)
         return sum(list(loss_dict.values())), stats
