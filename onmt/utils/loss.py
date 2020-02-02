@@ -64,7 +64,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, pos_loss_gen, opt.statistic, lambda_coverage=opt.lambda_coverage)
+            criterion, loss_gen, pos_loss_gen, opt.statistic, train=train, lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -238,12 +238,12 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator, sta, normalization="sents",
+    def __init__(self, criterion, generator, tag_generator, sta, train=False, normalization="sents",
                  lambda_coverage=0.0):
         super(NMTLossCompute, self).__init__(criterion, generator, tag_generator)
         self.lambda_coverage = lambda_coverage
         self.sta = sta
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
         self.step = 0
 
     def _make_shard_state(self, batch, output, range_, attns=None):
@@ -302,20 +302,32 @@ class NMTLossCompute(LossComputeBase):
             loss_dict["pos_loss"] = self.criterion(tag_scores, tag_gtruth)
             # sta
             if self.sta:
-                argmax_scores, argmax_ids = scores.topk(1, dim=-1)
-                log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
-                low_index = tag_gtruth.eq(5)
-                low_prob = torch.exp(log_prob[low_index])
-                arg_low = torch.exp(argmax_scores[low_index])
-                high_prob = torch.exp(log_prob[~low_index])
-                arg_high = torch.exp(argmax_scores[~low_index])
-                self.writer.add_scalars("sta_probs/low_prob",
-                                        {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                # acc
+                pred = tag_scores.max(1)[1]
+                non_padding = tag_gtruth.ne(self.padding_idx)
+                num_correct = pred.eq(tag_gtruth).masked_select(non_padding).sum().item()
+                num_non_padding = non_padding.sum().item()
+                self.writer.add_scalars("sta_acc",
+                                        {"acc": 100 * num_correct / num_non_padding},
                                         self.step)
-                self.writer.add_scalars("sta_probs/high_prob",
-                                        {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
-                                        self.step)
-                self.step += 1
+        if self.sta:
+            # probs
+            argmax_scores, argmax_ids = scores.topk(1, dim=-1)
+            log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
+            index = int(0.001 * (scores.shape[-1] - 4)) + 4
+            high_index = gtruth.lt(index)
+            # low_index = tag_gtruth.eq(5)
+            low_prob = torch.exp(log_prob[~high_index])
+            arg_low = torch.exp(argmax_scores[~high_index])
+            high_prob = torch.exp(log_prob[high_index])
+            arg_high = torch.exp(argmax_scores[high_index])
+            self.writer.add_scalars("sta_probs/low_prob",
+                                    {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                                    self.step)
+            self.writer.add_scalars("sta_probs/high_prob",
+                                    {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
+                                    self.step)
+        self.step += 1
         stats = self._stats(loss_dict, scores, gtruth)
         return sum(list(loss_dict.values())), stats
 

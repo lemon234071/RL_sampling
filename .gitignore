@@ -6,7 +6,7 @@ multi-bleu.perl
 .idea
 *.sublime-*
 .DS_Store
-data/
+data_old/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -114,7 +114,8 @@ runs/
 # yida
 checkpoint/
 log_dir/
-result/
+result*
+/
 data*/
 data_tool/
 rl_checkpoint/
