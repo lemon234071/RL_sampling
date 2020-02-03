@@ -315,7 +315,7 @@ class NMTLossCompute(LossComputeBase):
             if high_output.shape[0] < 1 or low_output.shape[0] < 1:
                 print(2)
             print(high_output.shape)
-            if high_output.shape[0] == 8:
+            if high_output.shape[0] == 90:
                 print(3)
             high_scores = self.generator(high_output)
             low_scores = self.low_generator(low_output)
