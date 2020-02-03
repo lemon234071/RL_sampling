@@ -476,7 +476,7 @@ def main():
     # pos_onmt()
     # freq_reddit("/home/wangyida/git/onmt_nlp/", "/home/wangyida/git/onmt_nlp/data_reddit/freq/")
 
-    freq_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 0.001, 50000)
+    freq_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
     # cnt_vocab("data_raw/reddit_small_single.json", "data_reddit_small/", 0.001, 50000)
     print(1)
 

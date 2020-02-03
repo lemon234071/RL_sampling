@@ -4,8 +4,6 @@ This includes: LossComputeBase and the standard NMTLossCompute, and
 """
 from __future__ import division
 
-import collections
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -281,7 +279,8 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
         # TODO(yida) loss
-        loss_dict = collections.defaultdict()
+        loss_dict = {"loss": torch.tensor(0).cuda(),
+                     "tag_loss": torch.tensor(0).cuda()}
         bottled_output = self._bottle(output)
         gtruth = target.view(-1)
         tag_scores = None
