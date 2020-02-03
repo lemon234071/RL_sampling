@@ -63,7 +63,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, train=train,
+            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, opt.high_rate, train=train,
             lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
@@ -237,12 +237,14 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator, low_generator, sta, train=False, normalization="sents",
+    def __init__(self, criterion, generator, tag_generator, low_generator, sta, high_rate, train=False,
+                 normalization="sents",
                  lambda_coverage=0.0):
         super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
         self.tag_generator = tag_generator
         self.low_generator = low_generator
+        self.high_rate = high_rate
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
         self.step = 0
@@ -279,8 +281,7 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
         # TODO(yida) loss
-        loss_dict = {"loss": torch.tensor(0).cuda(),
-                     "tag_loss": torch.tensor(0).cuda()}
+        loss_dict = {"loss": torch.tensor(0).cuda(), "tag_loss": torch.tensor(0).cuda()}
         bottled_output = self._bottle(output)
         gtruth = target.view(-1)
         tag_scores = None
@@ -307,21 +308,17 @@ class NMTLossCompute(LossComputeBase):
             # unk_indices = gtruth.eq(0)
             # high_gt_indices = unk_indices | high_gt_indices
             # low_gt_indices = low_gt_indices ^ unk_indices
-            if sum(high_gt_indices) == 0 or sum(low_gt_indices) == 0:
-                print(1)
             high_output = bottled_output[high_gt_indices]
             low_output = bottled_output[low_gt_indices]
-            if high_output.shape[0] < 1 or low_output.shape[0] < 1:
-                print(2)
-            print(high_output.shape)
-            if high_output.shape[0] == 90:
-                print(3)
-            high_scores = self.generator(high_output)
-            low_scores = self.low_generator(low_output)
             high_gt = gtruth[high_gt_indices]
-            low_gt = gtruth[low_gt_indices] - high_scores.shape[-1]
-            loss_dict["loss"] = self.criterion(high_scores, high_gt)
-            loss_dict["loss"] += self.criterion(low_scores, low_gt)
+            low_gt = gtruth[low_gt_indices] - self.generator._modules["0"].out_features
+            high_scores, low_scores = None, None
+            if high_output.shape[0] > 0:
+                high_scores = self.generator(high_output)
+                loss_dict["loss"] += self.criterion(high_scores, high_gt)
+            if low_output.shape[0] > 0:
+                low_scores = self.low_generator(low_output)
+                loss_dict["loss"] += self.criterion(low_scores, low_gt)
             if self.sta:
                 self._multi_sta(high_scores, low_scores, high_gt, low_gt)
             # temp
@@ -354,7 +351,7 @@ class NMTLossCompute(LossComputeBase):
         # probs
         argmax_scores, argmax_ids = scores.max(1)
         log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
-        index = int(0.001 * (scores.shape[-1] - 4)) + 4
+        index = int(self.high_rate * (scores.shape[-1] - 4)) + 4
         low_index = ~gtruth.lt(index)
         non_pad = gtruth.ne(self.padding_idx)
         high_index = (~low_index) & non_pad
@@ -380,21 +377,22 @@ class NMTLossCompute(LossComputeBase):
                                     self.step)
 
     def _multi_sta(self, high_scores, low_scores, high_gt, low_gt):
-        high_log_prob = high_scores.gather(-1, high_gt.unsqueeze(-1))
-        low_log_prob = low_scores.gather(-1, low_gt.unsqueeze(-1))
-        high_argmax_scores, high_argmax_ids = high_scores.max(1)
-        low_argmax_scores, low_argmax_ids = low_scores.max(1)
-        high_prob = torch.exp(high_log_prob)
-        low_prob = torch.exp(low_log_prob)
-        arg_high = torch.exp(high_argmax_scores)
-        arg_low = torch.exp(low_argmax_scores)
-
-        self.writer.add_scalars("sta_probs/low_prob",
-                                {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
-                                self.step)
-        self.writer.add_scalars("sta_probs/high_prob",
-                                {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
-                                self.step)
+        if high_scores is not None:
+            high_log_prob = high_scores.gather(-1, high_gt.unsqueeze(-1))
+            high_argmax_scores, high_argmax_ids = high_scores.max(1)
+            high_prob = torch.exp(high_log_prob)
+            arg_high = torch.exp(high_argmax_scores)
+            self.writer.add_scalars("sta_probs/high_prob",
+                                    {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
+                                    self.step)
+        if low_scores is not None:
+            low_log_prob = low_scores.gather(-1, low_gt.unsqueeze(-1))
+            low_argmax_scores, low_argmax_ids = low_scores.max(1)
+            low_prob = torch.exp(low_log_prob)
+            arg_low = torch.exp(low_argmax_scores)
+            self.writer.add_scalars("sta_probs/low_prob",
+                                    {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                                    self.step)
 
 
 def filter_shard_state(state, shard_size=None):

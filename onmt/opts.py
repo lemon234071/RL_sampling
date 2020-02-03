@@ -134,7 +134,7 @@ def model_opts(parser):
     group.add('--tag_gen', '-tag_gen', type=str, default=None,
               choices=[None, "parallel", "serial", "concat", "multi"],
               help="Use or not pos_gen.")
-    group.add('--high_rate', '-high_rate', type=float, default=0.001,
+    group.add('--high_rate', '-high_rate', type=float, default=0.003,
               help="high words rate of the voacb.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
               help="Use or not pos_enc.")
