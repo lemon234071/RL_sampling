@@ -323,13 +323,15 @@ def freq_reddit_json(path, out_dir, high, n):
             new_data.append(new_dialog)
         vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)[:n]
         print(len(vocab), "len vocab")
-        save_txt("\n".join([x[0] for x in vocab]), out_dir + "vocab.txt")
+        vocab = [x[0] for x in vocab]
+        save_txt("\n".join(vocab), out_dir + "vocab.txt")
         save_json(new_data, path)
         data = new_data
     else:
         vocab = load_txt(out_dir + "vocab.txt")
-    high_freq = set([x[0] for x in vocab[:int(high * len(vocab))]])
-    vocab = set([x[0] for x in vocab])
+    print(len(vocab), "vocab")
+    high_freq = set([x for x in vocab[:int(high * len(vocab))]])
+    vocab = set([x for x in vocab])
     print(len(high_freq), "len high")
     # save_txt("\n".join(list(high_freq)), rootdir+"high_freq.txt")
 
