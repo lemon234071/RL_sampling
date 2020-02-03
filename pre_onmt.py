@@ -305,7 +305,7 @@ def freq_reddit(rootdir, out_dir):
 
 def freq_reddit_json(path, out_dir, high, n):
     data = load_json(path)
-    if not os.path.exists(out_dir + "vocab.json"):
+    if not os.path.exists(out_dir + "vocab.txt"):
         new_data = []
         vocab = collections.Counter()
         for dialog in tqdm(data):
