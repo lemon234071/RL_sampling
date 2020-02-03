@@ -131,8 +131,11 @@ def model_opts(parser):
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
     # yida model
-    group.add('--pos_gen', '-pos_gen', action="store_true",
+    group.add('--tag_gen', '-tag_gen', type=str, default=None,
+              choices=[None, "parallel", "serial", "concat", "multi"],
               help="Use or not pos_gen.")
+    group.add('--high_rate', '-high_rate', type=float, default=0.001,
+              help="high words rate of the voacb.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
               help="Use or not pos_enc.")
     group.add('--pos_dec', '-pos_dec', action="store_true",

@@ -9,9 +9,10 @@
           users of this library) for the strategy things we do.
 """
 
-from copy import deepcopy
-import torch
 import traceback
+from copy import deepcopy
+
+import torch
 
 import onmt.utils
 from onmt.utils.logging import logger
@@ -310,7 +311,7 @@ class Trainer(object):
                                    else (batch.src, None)
                 tgt = batch.tgt
                 # TODO(yida) train
-                if self.model.pos_generator is not None:
+                if self.model.tag_generator is not None:
                     pos_src, _ = batch.pos_src \
                         if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
                     pos_tgt = batch.pos_tgt
@@ -356,7 +357,7 @@ class Trainer(object):
 
             tgt_outer = batch.tgt
             # TODO(yida) train
-            if self.model.pos_generator is not None:
+            if self.model.tag_generator is not None:
                 pos_src, _ = batch.pos_src \
                     if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
                 pos_outer = batch.pos_tgt
@@ -371,7 +372,7 @@ class Trainer(object):
                 tgt = tgt_outer[j: j + trunc_size]
                 # TODO(yida)
                 pos_tgt = pos_outer[j: j + trunc_size] \
-                    if self.model.pos_generator is not None else None
+                    if self.model.tag_generator is not None else None
 
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:

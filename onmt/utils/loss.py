@@ -4,6 +4,8 @@ This includes: LossComputeBase and the standard NMTLossCompute, and
 """
 from __future__ import division
 
+import collections
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -53,9 +55,8 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     use_raw_logits = isinstance(criterion, SparsemaxLoss)
     loss_gen = model.generator[0] if use_raw_logits else model.generator
     # TODO(yida) loss
-    pos_loss_gen = None
-    if opt.pos_gen:
-        pos_loss_gen = model.pos_generator[0] if use_raw_logits else model.pos_generator
+    tag_loss_gen = model.tag_generator
+    low_loss_gen = model.low_generator
     if opt.copy_attn:
         compute = onmt.modules.CopyGeneratorLossCompute(
             criterion, loss_gen, tgt_field.vocab, opt.copy_loss_by_seqlength,
@@ -64,7 +65,8 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, pos_loss_gen, opt.statistic, train=train, lambda_coverage=opt.lambda_coverage)
+            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, train=train,
+            lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -90,11 +92,10 @@ class LossComputeBase(nn.Module):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator):
+    def __init__(self, criterion, generator):
         super(LossComputeBase, self).__init__()
         self.criterion = criterion
         self.generator = generator
-        self.tag_generator = tag_generator
 
     @property
     def padding_idx(self):
@@ -192,7 +193,7 @@ class LossComputeBase(nn.Module):
         num_non_padding = non_padding.sum().item()
         # return onmt.utils.Statistics(loss, num_non_padding, num_correct)
         # TODO(yida) loss
-        return onmt.utils.Statistics(loss["loss"].item(), loss["pos_loss"].item(), num_non_padding, num_correct)
+        return onmt.utils.Statistics(loss["loss"].item(), loss["tag_loss"].item(), num_non_padding, num_correct)
 
     def _bottle(self, _v):
         return _v.view(-1, _v.size(2))
@@ -238,10 +239,12 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator, sta, train=False, normalization="sents",
+    def __init__(self, criterion, generator, tag_generator, low_generator, sta, train=False, normalization="sents",
                  lambda_coverage=0.0):
-        super(NMTLossCompute, self).__init__(criterion, generator, tag_generator)
+        super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
+        self.tag_generator = tag_generator
+        self.low_generator = low_generator
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
         self.step = 0
@@ -277,64 +280,67 @@ class NMTLossCompute(LossComputeBase):
 
     def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
-
-        bottled_output = self._bottle(output)
-
-        scores = self.generator(bottled_output)
-        gtruth = target.view(-1)
-
-        loss = self.criterion(scores, gtruth)
-        if self.lambda_coverage != 0.0:
-            coverage_loss = self._compute_coverage_loss(
-                std_attn=std_attn, coverage_attn=coverage_attn)
-            loss += coverage_loss
-        # stats = self._stats(loss.clone(), scores, gtruth)
-        #
-        # return loss, stats
         # TODO(yida) loss
-        loss_dict = {"loss": loss,
-                     "pos_loss": torch.tensor(0).cuda(),
-                     "pos_de_loss": torch.tensor(0).cuda()}
+        loss_dict = collections.defaultdict()
+        bottled_output = self._bottle(output)
+        gtruth = target.view(-1)
+        tag_scores = None
+
         if self.tag_generator is not None:
             tag_bottled_output = self._bottle(tag_output)
             tag_scores = self.tag_generator(tag_bottled_output)
             tag_gtruth = tag_target.view(-1)
-            loss_dict["pos_loss"] = self.criterion(tag_scores, tag_gtruth)
-        if self.sta:
-            # probs
-            argmax_scores, argmax_ids = scores.topk(1, dim=-1)
-            log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
-            index = int(0.001 * (scores.shape[-1] - 4)) + 4
-            low_index = ~gtruth.lt(index)
-            non_pad = gtruth.ne(self.padding_idx)
-            high_index = (~low_index) & non_pad
-            # low_index = tag_gtruth.eq(5)
-            low_prob = torch.exp(log_prob[low_index])
-            arg_low = torch.exp(argmax_scores[low_index])
-            high_prob = torch.exp(log_prob[high_index])
-            arg_high = torch.exp(argmax_scores[high_index])
-            self.writer.add_scalars("sta_probs/low_prob",
-                                    {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+            loss_dict["tag_loss"] = self.criterion(tag_scores, tag_gtruth)
+            # sta
+            tag_pred_indices = tag_scores.max(1)[1]
+            tag_non_padding = tag_gtruth.ne(self.padding_idx)
+            num_correct_tag = tag_pred_indices.eq(tag_gtruth).masked_select(tag_non_padding).sum().item()
+            num_non_padding_tag = tag_non_padding.sum().item()
+            self.writer.add_scalars("sta_acc",
+                                    {"acc": 100 * num_correct_tag / num_non_padding_tag},
                                     self.step)
-            self.writer.add_scalars("sta_probs/high_prob",
-                                    {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
-                                    self.step)
-            if self.tag_generator is not None:
-                # acc
-                pred = tag_scores.max(1)[1]
-                non_padding = tag_gtruth.ne(self.padding_idx)
-                num_correct = pred.eq(tag_gtruth).masked_select(non_padding).sum().item()
-                num_non_padding = non_padding.sum().item()
-                self.writer.add_scalars("sta_acc",
-                                        {"acc": 100 * num_correct / num_non_padding},
-                                        self.step)
-                # align
-                preds_words = scores.max(1)[1].lt(index)
-                preds_tag = tag_scores.max(1)[1].eq(4)
-                num_correct_tag = preds_words.eq(preds_tag).masked_select(non_padding).sum().item()
-                self.writer.add_scalars("sta_align",
-                                        {"align_acc": 100 * num_correct_tag / num_non_padding},
-                                        self.step)
+            # for multi
+        if self.low_generator is not None:
+            # pred_tag_index = tag_scores.max(1)[1]
+            # high_index = pred_tag_index.eq(4)
+            high_gt_indices = tag_gtruth.eq(4)
+            low_gt_indices = tag_gtruth.eq(5)
+            # unk_indices = gtruth.eq(0)
+            # high_gt_indices = unk_indices | high_gt_indices
+            # low_gt_indices = low_gt_indices ^ unk_indices
+            if sum(high_gt_indices) == 0 or sum(low_gt_indices) == 0:
+                print(1)
+            high_output = bottled_output[high_gt_indices]
+            low_output = bottled_output[low_gt_indices]
+            if high_output.shape[0] < 1 or low_output.shape[0] < 1:
+                print(2)
+            print(high_output.shape)
+            if high_output.shape[0] == 8:
+                print(3)
+            high_scores = self.generator(high_output)
+            low_scores = self.low_generator(low_output)
+            high_gt = gtruth[high_gt_indices]
+            low_gt = gtruth[low_gt_indices] - high_scores.shape[-1]
+            loss_dict["loss"] = self.criterion(high_scores, high_gt)
+            loss_dict["loss"] += self.criterion(low_scores, low_gt)
+            if self.sta:
+                self._multi_sta(high_scores, low_scores, high_gt, low_gt)
+            # temp
+            scores = bottled_output
+        else:
+            scores = self.generator(bottled_output)
+            gtruth = target.view(-1)
+
+            loss_dict["loss"] = self.criterion(scores, gtruth)
+            if self.lambda_coverage != 0.0:
+                coverage_loss = self._compute_coverage_loss(
+                    std_attn=std_attn, coverage_attn=coverage_attn)
+                loss_dict["loss"] += coverage_loss
+            # stats = self._stats(loss.clone(), scores, gtruth)
+            #
+            # return loss, stats
+            if self.sta:
+                self._sta(scores, gtruth, tag_scores)
 
         self.step += 1
         stats = self._stats(loss_dict, scores, gtruth)
@@ -344,6 +350,52 @@ class NMTLossCompute(LossComputeBase):
         covloss = torch.min(std_attn, coverage_attn).sum()
         covloss *= self.lambda_coverage
         return covloss
+
+    def _sta(self, scores, gtruth, tag_scores):
+        # probs
+        argmax_scores, argmax_ids = scores.max(1)
+        log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
+        index = int(0.001 * (scores.shape[-1] - 4)) + 4
+        low_index = ~gtruth.lt(index)
+        non_pad = gtruth.ne(self.padding_idx)
+        high_index = (~low_index) & non_pad
+        # low_index = tag_gtruth.eq(5)
+        low_prob = torch.exp(log_prob[low_index])
+        arg_low = torch.exp(argmax_scores[low_index])
+        high_prob = torch.exp(log_prob[high_index])
+        arg_high = torch.exp(argmax_scores[high_index])
+        self.writer.add_scalars("sta_probs/low_prob",
+                                {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                                self.step)
+        self.writer.add_scalars("sta_probs/high_prob",
+                                {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
+                                self.step)
+        if self.tag_generator is not None:
+            # align
+            non_padding = gtruth.ne(self.padding_idx)
+            preds_words = scores.max(1)[1].lt(index)
+            preds_tag = tag_scores.max(1)[1].eq(4)
+            num_correct_tag = preds_words.eq(preds_tag).masked_select(non_padding).sum().item()
+            self.writer.add_scalars("sta_align",
+                                    {"align_acc": 100 * num_correct_tag / non_padding.sum().item()},
+                                    self.step)
+
+    def _multi_sta(self, high_scores, low_scores, high_gt, low_gt):
+        high_log_prob = high_scores.gather(-1, high_gt.unsqueeze(-1))
+        low_log_prob = low_scores.gather(-1, low_gt.unsqueeze(-1))
+        high_argmax_scores, high_argmax_ids = high_scores.max(1)
+        low_argmax_scores, low_argmax_ids = low_scores.max(1)
+        high_prob = torch.exp(high_log_prob)
+        low_prob = torch.exp(low_log_prob)
+        arg_high = torch.exp(high_argmax_scores)
+        arg_low = torch.exp(low_argmax_scores)
+
+        self.writer.add_scalars("sta_probs/low_prob",
+                                {"low_prob": low_prob.mean(), "arg_low": arg_low.mean()},
+                                self.step)
+        self.writer.add_scalars("sta_probs/high_prob",
+                                {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
+                                self.step)
 
 
 def filter_shard_state(state, shard_size=None):

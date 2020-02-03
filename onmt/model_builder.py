@@ -75,7 +75,7 @@ def build_encoder(opt, embeddings, pos_embeddings=None):
         embeddings (Embeddings): vocab embeddings for this encoder.
     """
     enc_type = opt.encoder_type if opt.model_type == "text" \
-        or opt.model_type == "vec" else opt.model_type
+                                   or opt.model_type == "vec" else opt.model_type
     return str2enc[enc_type].from_opt(opt, embeddings, pos_embeddings)
 
 
@@ -88,7 +88,7 @@ def build_decoder(opt, embeddings, pos_embeddings=None):
         embeddings (Embeddings): vocab embeddings for this decoder.
     """
     dec_type = "ifrnn" if opt.decoder_type == "rnn" and opt.input_feed \
-               else opt.decoder_type
+        else opt.decoder_type
     return str2dec[dec_type].from_opt(opt, embeddings, pos_embeddings)
 
 
@@ -116,8 +116,10 @@ def load_test_model(opt, model_path=None):
     model.eval()
     model.generator.eval()
     # TODO(yida)
-    if model_opt.pos_gen:
-        model.pos_generator.eval()
+    if model_opt.tag_gen:
+        model.tag_generator.eval()
+    if model_opt.tag_gen == "multi":
+        model.low_generator.eval()
     return fields, model, model_opt
 
 
@@ -153,7 +155,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         src_emb = None
 
     # Build encoder.
-    #encoder = build_encoder(model_opt, src_emb)
+    # encoder = build_encoder(model_opt, src_emb)
 
     # Build decoder.
     tgt_field = fields["tgt"]
@@ -167,7 +169,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         tgt_emb.word_lut.weight = src_emb.word_lut.weight
 
-    #decoder = build_decoder(model_opt, tgt_emb)
+    # decoder = build_decoder(model_opt, tgt_emb)
 
     # TODO(yida) Build pos embeddings
     pos_src_emb, pos_tgt_emb = None, None
@@ -195,17 +197,34 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             gen_func = onmt.modules.sparse_activations.LogSparsemax(dim=-1)
         else:
             gen_func = nn.LogSoftmax(dim=-1)
-        generator = nn.Sequential(
-            nn.Linear(model_opt.dec_rnn_size,
-                      len(fields["tgt"].base_field.vocab)),
-            Cast(torch.float32),
-            gen_func
-        )
+
+        # TODO(yida) build model
+        if model_opt.tag_gen == "multi":
+            high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
+            high_num = 165
+            generator = nn.Sequential(
+                nn.Linear(model_opt.dec_rnn_size, high_num),
+                Cast(torch.float32),
+                gen_func
+            )
+            low_generator = nn.Sequential(
+                nn.Linear(model_opt.dec_rnn_size,
+                          len(fields["tgt"].base_field.vocab) - high_num),
+                Cast(torch.float32),
+                gen_func
+            )
+        else:
+            generator = nn.Sequential(
+                nn.Linear(model_opt.dec_rnn_size,
+                          len(fields["tgt"].base_field.vocab)),
+                Cast(torch.float32),
+                gen_func
+            )
         if model_opt.share_decoder_embeddings:
             generator[0].weight = decoder.embeddings.word_lut.weight
-        # TODO(yida) build model
-        if model_opt.pos_gen:
-            pos_generator = nn.Sequential(
+
+        if model_opt.tag_gen:
+            tag_generator = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size,
                           len(fields["pos_tgt"].base_field.vocab)),
                 Cast(torch.float32),
@@ -234,8 +253,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         model.load_state_dict(checkpoint['model'], strict=False)
         generator.load_state_dict(checkpoint['generator'], strict=False)
         # TODO(yida) build model
-        if model_opt.pos_gen:
-            pos_generator.load_state_dict(checkpoint['pos_generator'], strict=False)
+        if model_opt.tag_generator:
+            tag_generator.load_state_dict(checkpoint['tag_generator'], strict=False)
+        if model_opt.tag_generator == "multi":
+            low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
@@ -243,8 +264,11 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             for p in generator.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             # TODO(yida) build model
-            if model_opt.pos_gen:
-                for p in pos_generator.parameters():
+            if model_opt.tag_gen:
+                for p in tag_generator.parameters():
+                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            if model_opt.tag_gen == "multi":
+                for p in low_generator.parameters():
                     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
@@ -254,8 +278,12 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 if p.dim() > 1:
                     xavier_uniform_(p)
             # TODO(yida) build model
-            if model_opt.pos_gen:
-                for p in pos_generator.parameters():
+            if model_opt.tag_gen:
+                for p in tag_generator.parameters():
+                    if p.dim() > 1:
+                        xavier_uniform_(p)
+            if model_opt.tag_gen == "multi":
+                for p in low_generator.parameters():
                     if p.dim() > 1:
                         xavier_uniform_(p)
 
@@ -268,8 +296,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     model.generator = generator
     # TODO(yida) build model
-    model.pos_generator = pos_generator \
-        if model_opt.pos_gen else None
+    model.tag_generator = tag_generator if model_opt.tag_gen else None
+    model.low_generator = low_generator if model_opt.tag_gen == "multi" else None
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()
