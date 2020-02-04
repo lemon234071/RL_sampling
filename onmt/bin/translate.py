@@ -19,19 +19,19 @@ def translate(opt):
     translator = build_translator(opt, report_score=True)
     src_shards = split_corpus(opt.src, opt.shard_size)
     # yida translate
-    pos_src_shards = split_corpus(opt.pos_src, opt.shard_size)
+    tag_src_shards = split_corpus(opt.pos_src, opt.shard_size)
     tgt_shards = split_corpus(opt.tgt, opt.shard_size) \
         if opt.tgt is not None else repeat(None)
     # yida translate
-    shard_pairs = zip(src_shards, tgt_shards, pos_src_shards)
+    shard_pairs = zip(src_shards, tgt_shards, tag_src_shards)
 
     # yida translate
-    for i, (src_shard, tgt_shard, pos_shard) in enumerate(shard_pairs):
+    for i, (src_shard, tgt_shard, tag_shard) in enumerate(shard_pairs):
         logger.info("Translating shard %d." % i)
         translator.translate(
             src=src_shard,
             # yida translate
-            pos_src=pos_shard,
+            pos_src=tag_shard,
             tgt=tgt_shard,
             src_dir=opt.src_dir,
             batch_size=opt.batch_size,

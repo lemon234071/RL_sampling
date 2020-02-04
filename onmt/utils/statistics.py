@@ -1,8 +1,9 @@
 """ Statistics calculation utility """
 from __future__ import division
-import time
+
 import math
 import sys
+import time
 
 from onmt.utils.logging import logger
 
@@ -17,10 +18,10 @@ class Statistics(object):
     * elapsed time
     """
 
-    def __init__(self, loss=0, loss_pos_gen=0, n_words=0, n_correct=0):
+    def __init__(self, loss=0, loss_tag_gen=0, n_words=0, n_correct=0):
         self.loss = loss
         # TODO(yida) loss
-        self.loss_pos_gen = loss_pos_gen
+        self.loss_tag_gen = loss_tag_gen
 
         self.n_words = n_words
         self.n_correct = n_correct
@@ -83,7 +84,7 @@ class Statistics(object):
         """
         self.loss += stat.loss
         # TODO(yida) loss
-        self.loss_pos_gen += stat.loss_pos_gen
+        self.loss_tag_gen += stat.loss_tag_gen
         self.n_words += stat.n_words
         self.n_correct += stat.n_correct
 
@@ -103,13 +104,13 @@ class Statistics(object):
         return math.exp(min(self.loss / self.n_words, 100))
 
     # TODO(yida) loss
-    def pos_xent(self):
+    def tag_xent(self):
         """ compute cross entropy """
-        return self.loss_pos_gen / self.n_words
+        return self.loss_tag_gen / self.n_words
 
-    def pos_ppl(self):
+    def tag_ppl(self):
         """ compute perplexity """
-        return math.exp(min(self.loss_pos_gen / self.n_words, 100))
+        return math.exp(min(self.loss_tag_gen / self.n_words, 100))
 
     def elapsed_time(self):
         """ compute elapsed time """
@@ -128,15 +129,15 @@ class Statistics(object):
         if num_steps > 0:
             step_fmt = "%s/%5d" % (step_fmt, num_steps)
         logger.info(
-            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; pos_ppl: %5.2f; pos_xent: %4.2f; " +
+            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; tag_ppl: %5.2f; tag_xent: %4.2f; " +
              "lr: %7.5f; %3.0f/%3.0f tok/s; %6.0f sec")
             % (step_fmt,
                self.accuracy(),
                self.ppl(),
                self.xent(),
                # TODO(yida) loss
-               self.pos_ppl(),
-               self.pos_xent(),
+               self.tag_ppl(),
+               self.tag_xent(),
                learning_rate,
                self.n_src_words / (t + 1e-5),
                self.n_words / (t + 1e-5),
@@ -149,8 +150,8 @@ class Statistics(object):
         writer.add_scalar(prefix + "/xent", self.xent(), step)
         writer.add_scalar(prefix + "/ppl", self.ppl(), step)
         # TODO(yida)
-        writer.add_scalar(prefix + "/pos_xent", self.pos_xent(), step)
-        writer.add_scalar(prefix + "/pos_ppl", self.pos_ppl(), step)
+        writer.add_scalar(prefix + "/tag_xent", self.tag_xent(), step)
+        writer.add_scalar(prefix + "/tag_ppl", self.tag_ppl(), step)
         writer.add_scalar(prefix + "/accuracy", self.accuracy(), step)
         writer.add_scalar(prefix + "/tgtper", self.n_words / t, step)
         writer.add_scalar(prefix + "/lr", learning_rate, step)

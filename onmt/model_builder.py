@@ -252,9 +252,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         model.load_state_dict(checkpoint['model'], strict=False)
         generator.load_state_dict(checkpoint['generator'], strict=False)
         # TODO(yida) build model
-        if model_opt.tag_generator:
+        if model_opt.tag_gen:
             tag_generator.load_state_dict(checkpoint['tag_generator'], strict=False)
-        if model_opt.tag_generator == "multi":
+        if model_opt.tag_gen == "multi":
             low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:

@@ -354,7 +354,7 @@ class Translator(object):
         # yida translate
         all_entropy = []
         vocab_pos = None
-        all_pos_predictions = []
+        all_tag_predictions = []
         all_pos_entropy = []
         cnt_high = 0
         cnt_line = 0
@@ -384,12 +384,12 @@ class Translator(object):
                 self.out_file.flush()
                 # yida translate
                 # all_entropy += [trans.entropy_sents.tolist()]
-                if self.model.pos_generator is not None:
-                    n_best_pos_preds = [" ".join(pos_pred)
-                                        for pos_pred in trans.pos_pred_sents[:self.n_best]]
-                    all_pos_predictions += [n_best_pos_preds]
+                if self.model.tag_generator is not None:
+                    n_best_tag_preds = [" ".join(tag_pred)
+                                        for tag_pred in trans.tag_pred_sents[:self.n_best]]
+                    all_tag_predictions += [n_best_tag_preds]
                     pos_seq = []
-                    for x in n_best_pos_preds[0].split():
+                    for x in n_best_tag_preds[0].split():
                         try:
                             pos_seq.append(int(x))
                         except:
@@ -435,7 +435,8 @@ class Translator(object):
         end_time = time.time()
 
         # yida translate
-        # print(cnt_high / cnt_line)
+        if cnt_line != 0:
+            print(cnt_high / cnt_line)
 
         if self.report_score:
             msg = self._report_score('PRED', pred_score_total,
@@ -456,9 +457,9 @@ class Translator(object):
             total_time = end_time - start_time
             self._log("Total translation time (s): %f" % total_time)
             self._log("Average translation time (s): %f" % (
-                total_time / len(all_predictions)))
+                    total_time / len(all_predictions)))
             self._log("Tokens per second: %f" % (
-                pred_words_total / total_time))
+                    pred_words_total / total_time))
 
         if self.dump_beam:
             import json
@@ -515,14 +516,14 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, self.leanred_t)
+            self.model.tag_generator is not None, self.leanred_t)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
             # yida translate
             pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
-                if self.model.pos_generator is not None else None
+                if self.model.tag_generator is not None else None
 
             # yida translate
             log_probs, attn, pos_log_probs = self._decode_and_generate(
@@ -569,9 +570,9 @@ class Translator(object):
         results["attention"] = random_sampler.attention
         # yida translate
         # results["entropy"] = random_sampler.entropy
-        if self.model.pos_generator is not None:
-            results["pos_predictions"] = random_sampler.pos_predictions
-            #results["pos_entropy"] = random_sampler.pos_entropy
+        if self.model.tag_generator is not None:
+            results["tag_predictions"] = random_sampler.tag_predictions
+            # results["pos_entropy"] = random_sampler.pos_entropy
         return results
 
     def translate_batch(self, batch, src_vocabs, attn_debug, vocab_pos):
@@ -600,7 +601,7 @@ class Translator(object):
 
     def _run_encoder(self, batch):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \
-                           else (batch.src, None)
+            else (batch.src, None)
 
         # yida translate
         if self.model.pos_enc:
@@ -613,9 +614,9 @@ class Translator(object):
             assert not isinstance(memory_bank, tuple), \
                 'Ensemble decoding only supported for text data'
             src_lengths = torch.Tensor(batch.batch_size) \
-                               .type_as(memory_bank) \
-                               .long() \
-                               .fill_(memory_bank.size(0))
+                .type_as(memory_bank) \
+                .long() \
+                .fill_(memory_bank.size(0))
         return src, enc_states, memory_bank, src_lengths
 
     def _decode_and_generate(
@@ -651,10 +652,26 @@ class Translator(object):
                 attn = dec_attn["std"]
             else:
                 attn = None
-            log_probs = self.model.generator(dec_out.squeeze(0))
             # yida translate
-            pos_log_probs = self.model.pos_generator(
-                dec_out.squeeze(0)) if self.model.pos_generator is not None else None
+            tag_log_probs = self.model.tag_generator(
+                dec_out.squeeze(0)) if self.model.tag_generator is not None else None
+            tag_argmax = tag_log_probs.max(1)[1]
+            if self.model.low_generator is not None:
+                high_indices = tag_argmax.eq(4)
+                low_indices = tag_argmax.eq(5)
+                high_out = dec_out.squeeze(0)[high_indices]
+                low_out = dec_out.squeeze(0)[low_indices]
+                assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
+                high_probs = self.model.generator(high_out)
+                low_probs = self.model.low_generator(low_out)
+                high_num = self.model.generator._modules["0"].out_features
+                low_num = self.model.low_generator._modules["0"].out_features
+                log_probs = torch.full([dec_out.squeeze(0).shape[0], high_num + low_num], -float('inf'),
+                                       dtype=torch.float, device=high_out.device)
+                log_probs[high_indices, :high_probs.shape[1]] = high_probs
+                log_probs[low_indices, high_probs.shape[1]:] = low_probs
+            else:
+                log_probs = self.model.generator(dec_out.squeeze(0))
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:
@@ -681,7 +698,7 @@ class Translator(object):
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         # yida translate
-        return log_probs, attn, pos_log_probs
+        return log_probs, attn, tag_log_probs
 
     def _translate_batch(
             self,

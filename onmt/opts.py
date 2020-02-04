@@ -133,7 +133,7 @@ def model_opts(parser):
     # yida model
     group.add('--tag_gen', '-tag_gen', type=str, default=None,
               choices=[None, "parallel", "serial", "concat", "multi"],
-              help="Use or not pos_gen.")
+              help="Type of tag_generator.")
     group.add('--high_rate', '-high_rate', type=float, default=0.003,
               help="high words rate of the voacb.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
@@ -761,6 +761,7 @@ def translate_opts(parser):
               help="learned_t.")
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
+
     group.add('--reset_optim', '-reset_optim', default='none',
               choices=['none', 'all', 'states', 'keep_states'],
               help="Optimization resetter when train_from.")

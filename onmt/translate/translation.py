@@ -58,22 +58,22 @@ class TranslationBuilder(object):
         return tokens
 
     # TODO(yida)
-    def _build_target_tokens_pos(self, src, src_vocab, src_raw, pred, pos_pred, attn):
+    def _build_target_tokens_pos(self, src, src_vocab, src_raw, pred, tag_pred, attn):
         tgt_field = dict(self.fields)["tgt"].base_field
         vocab = tgt_field.vocab
-        pos_field = dict(self.fields)["pos_tgt"].base_field
-        pos_vocab = pos_field.vocab
-        pos_tokens = []
+        tag_field = dict(self.fields)["pos_tgt"].base_field
+        tag_vocab = tag_field.vocab
+        tag_tokens = []
         tokens = []
-        for tok, pos_tok in zip(pred, pos_pred):
+        for tok, tag_tok in zip(pred, tag_pred):
             if tok < len(vocab):
                 tokens.append(vocab.itos[tok])
-                pos_tokens.append(pos_vocab.itos[pos_tok])
+                tag_tokens.append(tag_vocab.itos[tag_tok])
             else:
                 tokens.append(src_vocab.itos[tok - len(vocab)])
             if tokens[-1] == tgt_field.eos_token:
                 tokens = tokens[:-1]
-                pos_tokens = pos_tokens[:-1]
+                tag_tokens = tag_tokens[:-1]
                 break
         if self.replace_unk and attn is not None and src is not None:
             for i in range(len(tokens)):
@@ -85,16 +85,16 @@ class TranslationBuilder(object):
                             for line in f:
                                 if line.startswith(src_raw[max_index.item()]):
                                     tokens[i] = line.split('|||')[1].strip()
-        return tokens, pos_tokens
+        return tokens, tag_tokens
 
     def from_batch(self, translation_batch):
         batch = translation_batch["batch"]
         # yida translate
         assert (len(translation_batch["gold_score"]) ==
                 len(translation_batch["predictions"]))
-        if "pos_predictions" in translation_batch:
+        if "tag_predictions" in translation_batch:
             assert (len(translation_batch["gold_score"]) ==
-                    len(translation_batch["pos_predictions"]))
+                    len(translation_batch["tag_predictions"]))
         batch_size = batch.batch_size
 
         preds, pred_score, attn, gold_score, indices = list(zip(
@@ -105,12 +105,12 @@ class TranslationBuilder(object):
                         batch.indices.data),
                     key=lambda x: x[-1])))
         # yida translate
-        if "pos_predictions" in translation_batch:
-            pos_preds, pos_indices = list(zip(
-                *sorted(zip(translation_batch["pos_predictions"],
+        if "tag_predictions" in translation_batch:
+            tag_preds, tag_indices = list(zip(
+                *sorted(zip(translation_batch["tag_predictions"],
                             batch.indices.data),
                         key=lambda x: x[-1])))
-            assert pos_indices == indices
+            assert tag_indices == indices
 
         # Sorting
         inds, perm = torch.sort(batch.indices)
@@ -131,7 +131,7 @@ class TranslationBuilder(object):
                 src_vocab = None
                 src_raw = None
             # yida translate
-            if "pos_predictions" not in translation_batch:
+            if "tag_predictions" not in translation_batch:
                 pred_sents = [self._build_target_tokens(
                     src[:, b] if src is not None else None,
                     src_vocab, src_raw,
@@ -141,10 +141,10 @@ class TranslationBuilder(object):
                 temp_sents = [self._build_target_tokens_pos(
                     src[:, b] if src is not None else None,
                     src_vocab, src_raw,
-                    preds[b][n], pos_preds[b][n],
+                    preds[b][n], tag_preds[b][n],
                     attn[b][n])
                     for n in range(self.n_best)]
-                pred_sents, pos_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
+                pred_sents, tag_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
             gold_sent = None
             if tgt is not None:
                 gold_sent = self._build_target_tokens(
@@ -153,7 +153,7 @@ class TranslationBuilder(object):
                     tgt[1:, b] if tgt is not None else None, None)
 
             # yida translate
-            if "pos_predictions" not in translation_batch:
+            if "tag_predictions" not in translation_batch:
                 translation = Translation(
                     src[:, b] if src is not None else None,
                     src_raw, pred_sents, attn[b], pred_score[b],
@@ -165,7 +165,7 @@ class TranslationBuilder(object):
                     src_raw, pred_sents,
                     attn[b], pred_score[b],
                     gold_sent, gold_score[b],
-                    pos_pred_sents
+                    tag_pred_sents=tag_pred_sents
                 )
             translations.append(translation)
 
@@ -177,10 +177,10 @@ class TranslationBuilder(object):
         assert (len(translation_batch["gold_score"]) ==
                 len(translation_batch["predictions"]) ==
                 len(translation_batch["entropy"]))
-        if "pos_predictions" in translation_batch:
+        if "tag_predictions" in translation_batch:
             assert (len(translation_batch["gold_score"]) ==
-                    len(translation_batch["pos_predictions"]) ==
-                    len(translation_batch["pos_entropy"]))
+                    len(translation_batch["tag_predictions"]) ==
+                    len(translation_batch["tag_entropy"]))
         batch_size = batch.batch_size
 
         preds, pred_score, attn, gold_score, entropy, indices = list(zip(
@@ -193,13 +193,13 @@ class TranslationBuilder(object):
                         batch.indices.data),
                     key=lambda x: x[-1])))
         # yida translate
-        if "pos_predictions" in translation_batch:
-            pos_preds, pos_entroy, pos_indices = list(zip(
-                *sorted(zip(translation_batch["pos_predictions"],
-                            translation_batch["pos_entropy"],
+        if "tag_predictions" in translation_batch:
+            tag_preds, tag_entroy, tag_indices = list(zip(
+                *sorted(zip(translation_batch["tag_predictions"],
+                            translation_batch["tag_entropy"],
                             batch.indices.data),
                         key=lambda x: x[-1])))
-            assert pos_indices == indices
+            assert tag_indices == indices
 
         # Sorting
         inds, perm = torch.sort(batch.indices)
@@ -221,7 +221,7 @@ class TranslationBuilder(object):
                 src_raw = None
             # yida translate
             entropy_sents = entropy[b][0][:-1]
-            if "pos_predictions" not in translation_batch:
+            if "tag_predictions" not in translation_batch:
                 pred_sents = [self._build_target_tokens(
                     src[:, b] if src is not None else None,
                     src_vocab, src_raw,
@@ -231,11 +231,11 @@ class TranslationBuilder(object):
                 temp_sents = [self._build_target_tokens_pos(
                     src[:, b] if src is not None else None,
                     src_vocab, src_raw,
-                    preds[b][n], pos_preds[b][n],
+                    preds[b][n], tag_preds[b][n],
                     attn[b][n])
                     for n in range(self.n_best)]
-                pred_sents, pos_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
-                pos_entropy_sents = pos_entroy[b][0][:-1]
+                pred_sents, tag_pred_sents = [temp_sents[0][0]], [temp_sents[0][1]]
+                tag_entropy_sents = tag_entroy[b][0][:-1]
             gold_sent = None
             if tgt is not None:
                 gold_sent = self._build_target_tokens(
@@ -244,7 +244,7 @@ class TranslationBuilder(object):
                     tgt[1:, b] if tgt is not None else None, None)
 
             # yida translate
-            if "pos_predictions" not in translation_batch:
+            if "tag_predictions" not in translation_batch:
                 translation = Translation(
                     src[:, b] if src is not None else None,
                     src_raw, pred_sents, attn[b], pred_score[b],
@@ -258,7 +258,7 @@ class TranslationBuilder(object):
                     src_raw, pred_sents,
                     attn[b], pred_score[b],
                     gold_sent, gold_score[b],
-                    entropy_sents, pos_pred_sents, pos_entropy_sents
+                    entropy_sents, tag_pred_sents, tag_entropy_sents
                 )
             translations.append(translation)
 
@@ -281,13 +281,13 @@ class Translation(object):
 
     __slots__ = ["src", "src_raw", "pred_sents", "attns", "pred_scores",
                  # yida translate
-                 "pos_pred_sents", "entropy_sents", "pos_entropy_sents",
+                 "tag_pred_sents", "entropy_sents", "tag_entropy_sents",
                  "gold_sent", "gold_score"]
 
     def __init__(self, src, src_raw, pred_sents,
                  attn, pred_scores, tgt_sent, gold_score,
                  # yida translate
-                 entropy_sents=None, pos_pred_sents=None, pos_entropy_sents=None):
+                 entropy_sents=None, tag_pred_sents=None, tag_entropy_sents=None):
         self.src = src
         self.src_raw = src_raw
         self.pred_sents = pred_sents
@@ -296,9 +296,9 @@ class Translation(object):
         self.gold_sent = tgt_sent
         self.gold_score = gold_score
         # yida translate
-        self.pos_pred_sents = pos_pred_sents
+        self.tag_pred_sents = tag_pred_sents
         self.entropy_sents = entropy_sents
-        self.pos_entropy_sents = pos_entropy_sents
+        self.tag_entropy_sents = tag_entropy_sents
 
     def log(self, sent_number):
         """

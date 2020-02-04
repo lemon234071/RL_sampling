@@ -234,7 +234,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, leanred_t):
+                 tag_gen, leanred_t):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -249,11 +249,11 @@ class RandomSampling(DecodeStrategy):
         self.original_batch_idx = torch.arange(self.batch_size,
                                                dtype=torch.long, device=device)
         # yida translate
-        self.pos_predictions = [[] for _ in range(batch_size)]
+        self.tag_predictions = [[] for _ in range(batch_size)]
         self.pos_alive_seq = torch.full(
             [batch_size * 1, 1], bos,
             dtype=torch.long, device=device)
-        self.pos_gen = pos_gen
+        self.tag_gen = tag_gen
         self.leanred_t = leanred_t
 
     # yida translate
@@ -275,7 +275,7 @@ class RandomSampling(DecodeStrategy):
         # yida translate
         self.ensure_min_length(pos_log_probs)
         self.block_ngram_repeats(pos_log_probs)
-        if self.pos_gen:
+        if self.tag_gen:
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
@@ -308,8 +308,8 @@ class RandomSampling(DecodeStrategy):
             b_orig = self.original_batch_idx[b]
             self.scores[b_orig].append(self.topk_scores[b, 0])
             self.predictions[b_orig].append(self.alive_seq[b, 1:])
-            if self.pos_gen:
-                self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
+            if self.tag_gen:
+                self.tag_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
 
             self.attention[b_orig].append(
                 self.alive_attn[:, b, :self.memory_length[b]]
@@ -320,7 +320,7 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        if self.pos_gen:
+        if self.tag_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
 
         if self.alive_attn is not None:
