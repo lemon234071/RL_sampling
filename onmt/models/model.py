@@ -12,15 +12,16 @@ class NMTModel(nn.Module):
       decoder (onmt.decoders.DecoderBase): a decoder object
     """
 
-    def __init__(self, encoder, decoder, pos_enc, pos_dec):
+    def __init__(self, encoder, decoder, tag_enc, tag_dec, mask_attn=False):
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
         # TODO(yida) model
-        self.pos_enc = pos_enc
-        self.pos_dec = pos_dec
+        self.tag_enc = tag_enc
+        self.tag_dec = tag_dec
+        self.mask_attn = mask_attn
 
-    def forward(self, src, tgt, pos_src, pos_tgt, lengths, bptt=False):
+    def forward(self, src, tgt, tag_src, tag_tgt, lengths, bptt=False):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -41,18 +42,20 @@ class NMTModel(nn.Module):
             * dictionary attention dists of ``(tgt_len, batch, src_len)``
         """
         tgt = tgt[:-1]  # exclude last target from inputs
-        # TODO(yida) model
-        pos_tgt = pos_tgt[:-1] if self.pos_dec else None
+        # TODO(yida) model for attn
+        # tag_tgt = tag_tgt[:-1]
 
         # TODO(yida) model
-        pos_align_src = pos_src if self.pos_enc else None
-        enc_state, memory_bank, lengths = self.encoder(src, pos_align_src, lengths)
+        tag_enc_src = tag_src if self.tag_enc else None
+        enc_state, memory_bank, lengths = self.encoder(src, tag_enc_src, lengths)
 
         if bptt is False:
             self.decoder.init_state(src, memory_bank, enc_state)
         # TODO(yida) model
-        pos_align_tgt = pos_tgt if self.pos_dec else None
-        dec_out, attns = self.decoder(tgt, memory_bank, pos_align_tgt,
+        tag_enc_tgt = tag_tgt if (self.tag_dec or self.mask_attn) else None
+        tag_enc = tag_src if self.mask_attn else None
+
+        dec_out, attns = self.decoder(tgt, memory_bank, tag_enc, tag_enc_tgt,
                                       memory_lengths=lengths)
         return dec_out, attns
 

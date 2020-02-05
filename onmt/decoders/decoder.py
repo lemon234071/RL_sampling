@@ -1,3 +1,5 @@
+from itertools import repeat
+
 import torch
 import torch.nn as nn
 
@@ -194,7 +196,7 @@ class RNNDecoderBase(DecoderBase):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
         self.state["input_feed"] = self.state["input_feed"].detach()
 
-    def forward(self, tgt, memory_bank, pos_tgt=None, memory_lengths=None, step=None):
+    def forward(self, tgt, memory_bank, tag_src=None, tag_tgt=None, memory_lengths=None, step=None):
         """
         Args:
             tgt (LongTensor): sequences of padded tokens
@@ -215,7 +217,7 @@ class RNNDecoderBase(DecoderBase):
 
         # TODO(yida) decoder
         dec_state, dec_outs, attns = self._run_forward_pass(
-            tgt, memory_bank, pos_tgt, memory_lengths=memory_lengths)
+            tgt, memory_bank, tag_src, tag_tgt, memory_lengths=memory_lengths)
 
         # Update the state with the result.
         if not isinstance(dec_state, tuple):
@@ -363,7 +365,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
           G --> H
     """
 
-    def _run_forward_pass(self, tgt, memory_bank, pos_tgt, memory_lengths=None):
+    def _run_forward_pass(self, tgt, memory_bank, tag_src, tag_tgt, memory_lengths=None):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -397,12 +399,19 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         # TODO(yida) decoder
         iter_emb = emb.split(1)
         if self.pos_embeddings is not None:
-            assert tgt.shape == pos_tgt.shape
-            pos_emb = self.pos_embeddings(pos_tgt)
-            iter_emb = zip(iter_emb, pos_emb.split(1))
-        for emb_t in iter_emb:
-            if isinstance(emb_t, tuple):
-                decoder_input = torch.cat([emb_t[0].squeeze(0), emb_t[1].squeeze(0), input_feed], 1)
+            assert tgt.shape == tag_tgt[:-1].shape
+            tag_emb = self.pos_embeddings(tag_tgt[:-1])
+            iter_tag_emb = tag_emb.split(1)
+        else:
+            iter_tag_emb = repeat(None)
+        if tag_src is not None:
+            iter_tag_tgt = tag_tgt[1:].split(1)
+        else:
+            iter_tag_tgt = repeat(None)
+        iter_emb = zip(iter_emb, iter_tag_emb, iter_tag_tgt)
+        for emb_t, tag_emb_t, tag_tgt_t in iter_emb:
+            if tag_emb_t is not None:
+                decoder_input = torch.cat([emb_t.squeeze(0), tag_emb_t.squeeze(0), input_feed], 1)
             else:
                 decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
             #decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
@@ -411,6 +420,8 @@ class InputFeedRNNDecoder(RNNDecoderBase):
                 decoder_output, p_attn = self.attn(
                     rnn_output,
                     memory_bank.transpose(0, 1),
+                    tag_src,
+                    tag_tgt_t,
                     memory_lengths=memory_lengths)
                 attns["std"].append(p_attn)
             else:

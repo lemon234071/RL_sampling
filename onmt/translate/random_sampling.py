@@ -61,19 +61,21 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, pos_logits, leanred_t, mask=True):
+def freq_guide(logits, tag_logits, leanred_t, mask=True):
     # logits_backup = logits.clone()
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
-    high = topk_pos_ids.eq(4)
+    topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
+    high = topk_tag_ids.eq(4)
+    low = topk_tag_ids.eq(5)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * leanred_t + (~high).float() * 1.1
+    numerator = high.float() * leanred_t + low.float() * 1.1
     logits /= numerator
     if mask:
-        high_mask = high.view(-1)
-        index = int(0.001 * (logits.shape[-1] - 4))
-        logits[high_mask, 4 + index:] = -10000
-        logits[~high_mask, 4: 4 + index] = -10000
+        high_mask = high.squeeze()
+        low_mask = low.squeeze()
+        index = int(0.003 * (logits.shape[-1] - 4)) + 4
+        logits[high_mask, index:] = -10000
+        logits[low_mask, : index] = -10000
         # if False:
         #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
@@ -123,21 +125,21 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method="greedy"):
+def sample_with_dynamic_temperature(logits, tag_logits, learned_t, sample_method="greedy"):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     else:
-        # logits, _ = get_topp(logits, top_p=0.9)
-        # logits /= 1
-
+        if sample_method == "topp":
+            logits, _ = get_topp(logits, top_p=0.9)
+            logits /= 1
         # entropy
         # logits = pos_guide(logits, pos_logits)
 
         ## freq x
-        if sample_method == "freq":
-            logits = freq_guide(logits, pos_logits, learned_t)
+        elif sample_method == "freq":
+            logits = freq_guide(logits, tag_logits, learned_t)
         elif sample_method == "topk":
-            logits = topk_guide(logits, pos_logits, learned_t * 10)
+            logits = topk_guide(logits, tag_logits, learned_t * 10)
         else:
             raise Exception("wrong sample method")
 
@@ -234,7 +236,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 tag_gen, leanred_t):
+                 tag_gen, leanred_t, sample_method):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -255,6 +257,7 @@ class RandomSampling(DecodeStrategy):
             dtype=torch.long, device=device)
         self.tag_gen = tag_gen
         self.leanred_t = leanred_t
+        self.sample_method = sample_method
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs):
@@ -288,7 +291,7 @@ class RandomSampling(DecodeStrategy):
         #     topk_ids, self.topk_scores = \
         #         sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
         topk_ids, self.topk_scores = \
-            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 

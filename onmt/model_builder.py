@@ -189,7 +189,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         device = torch.device("cuda")
     elif not gpu:
         device = torch.device("cpu")
-    model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_enc, model_opt.pos_dec)
+    model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_enc, model_opt.pos_dec, model_opt.mask_attn)
 
     # Build Generator.
     if not model_opt.copy_attn:

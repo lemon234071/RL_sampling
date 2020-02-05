@@ -134,6 +134,7 @@ class Translator(object):
             report_score=True,
             logger=None,
             leanred_t=0.1,
+            sample_method="greedy",
             seed=-1):
         self.model = model
         self.fields = fields
@@ -193,7 +194,9 @@ class Translator(object):
         self._filter_pred = None
 
         self.leanred_t = leanred_t
+        self.sample_method = sample_method
         print("t", leanred_t)
+        print("sample_method", sample_method)
         # for debugging
         self.beam_trace = self.dump_beam != ""
         self.beam_accum = None
@@ -266,6 +269,7 @@ class Translator(object):
             report_score=report_score,
             logger=logger,
             leanred_t=opt.learned_t,
+            sample_method=opt.sample_method,
             seed=opt.seed)
 
     def _log(self, msg):
@@ -516,7 +520,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, self.leanred_t)
+            self.model.tag_generator is not None, self.leanred_t, self.sample_method)
 
         for step in range(max_length):
             # Shape: (1, B, 1)

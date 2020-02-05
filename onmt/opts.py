@@ -131,6 +131,8 @@ def model_opts(parser):
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
     # yida model
+    group.add('--mask_attn', '-mask_attn', action='store_true',
+              help="mask_attn")
     group.add('--tag_gen', '-tag_gen', type=str, default=None,
               choices=[None, "parallel", "serial", "concat", "multi"],
               help="Type of tag_generator.")
@@ -752,8 +754,8 @@ def translate_opts(parser):
 
     # yida sampling
     group.add('--infer', '-infer', action='store_true', help="infer.")
-    group.add('--sample_method', '-sample_method', default='freq',
-              choices=["freq", "topk", "topp"],
+    group.add('--sample_method', '-sample_method', default='greedy',
+              choices=['greedy', 'freq', 'topk', 'topp'],
               help="")
     group.add('--rl_step', '-rl_step', action='store_true',
               help=".")

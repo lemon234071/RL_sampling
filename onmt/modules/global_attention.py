@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from onmt.modules.sparse_activations import sparsemax
 from onmt.utils.misc import aeq, sequence_mask
 
+
 # This class is mainly used by decoder.py for RNNs but also
 # by the CNN / transformer decoder when copy attention is used
 # CNN has its own attention mechanism ConvMultiStepAttention
@@ -135,7 +136,7 @@ class GlobalAttention(nn.Module):
 
             return self.v(wquh.view(-1, dim)).view(tgt_batch, tgt_len, src_len)
 
-    def forward(self, source, memory_bank, memory_lengths=None, coverage=None):
+    def forward(self, source, memory_bank, tag_src, tag_tgt, memory_lengths=None, coverage=None):
         """
 
         Args:
@@ -181,6 +182,14 @@ class GlobalAttention(nn.Module):
             mask = sequence_mask(memory_lengths, max_len=align.size(-1))
             mask = mask.unsqueeze(1)  # Make it broadcastable.
             align.masked_fill_(~mask, -float('inf'))
+
+        # yida mask attn
+        if tag_src is not None:
+            label = tag_tgt.expand(tag_src.size())
+            tag_mask = tag_src.ne(label)
+            tag_mask = tag_mask.transpose(0, 1)
+            tag_mask = tag_mask.transpose(1, 2)
+            align[tag_mask] = -float('inf')
 
         # Softmax or sparsemax to normalize attention weights
         if self.attn_func == "softmax":
