@@ -186,10 +186,12 @@ class GlobalAttention(nn.Module):
         # yida mask attn
         if tag_src is not None:
             label = tag_tgt.expand(tag_src.size())
+            non_pad_mask = label.ne(1)
             tag_mask = tag_src.ne(label)
+            tag_mask = tag_mask & non_pad_mask
             tag_mask = tag_mask.transpose(0, 1)
             tag_mask = tag_mask.transpose(1, 2)
-            align[tag_mask] = -float('inf')
+            align.masked_fill_(tag_mask, -10000)
 
         # Softmax or sparsemax to normalize attention weights
         if self.attn_func == "softmax":
@@ -197,6 +199,12 @@ class GlobalAttention(nn.Module):
         else:
             align_vectors = sparsemax(align.view(batch*target_l, source_l), -1)
         align_vectors = align_vectors.view(batch, target_l, source_l)
+
+        # if torch.isnan(align_vectors).any().item():
+        #     print(2)
+        #     nan_mask = torch.isnan(align_vectors)
+        #     align_vectors[nan_mask] = 0.0
+
 
         # each context vector c_t is the weighted average
         # over all the source hidden states

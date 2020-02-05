@@ -63,7 +63,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, opt.high_rate, train=train,
+            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, opt.high_rate, device, train=train,
             lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
@@ -237,7 +237,7 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator, low_generator, sta, high_rate, train=False,
+    def __init__(self, criterion, generator, tag_generator, low_generator, sta, high_rate, device, train=False,
                  normalization="sents",
                  lambda_coverage=0.0):
         super(NMTLossCompute, self).__init__(criterion, generator)
@@ -248,6 +248,7 @@ class NMTLossCompute(LossComputeBase):
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
         self.step = 0
+        self.device = device
 
     def _make_shard_state(self, batch, output, range_, attns=None):
         # TODO(yida) loss
@@ -281,7 +282,7 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
         # TODO(yida) loss
-        loss_dict = {"loss": torch.tensor(0.0).cuda(), "tag_loss": torch.tensor(0.0).cuda()}
+        loss_dict = {"loss": torch.tensor(0.0).to(self.device), "tag_loss": torch.tensor(0.0).to(self.device)}
         bottled_output = self._bottle(output)
         gtruth = target.view(-1)
         tag_scores = None

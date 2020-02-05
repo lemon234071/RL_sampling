@@ -387,6 +387,8 @@ class InputFeedRNNDecoder(RNNDecoderBase):
             attns["coverage"] = []
 
         emb = self.embeddings(tgt)
+        if torch.isnan(emb).any().item():
+            print(2)
         assert emb.dim() == 3  # len x batch x embedding_dim
 
         dec_state = self.state["hidden"]
