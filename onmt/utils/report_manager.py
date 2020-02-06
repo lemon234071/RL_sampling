@@ -1,10 +1,10 @@
 """ Report manager utility """
 from __future__ import print_function
+
 import time
 from datetime import datetime
 
 import onmt
-
 from onmt.utils.logging import logger
 
 
@@ -149,7 +149,7 @@ class ReportMgr(ReportMgrBase):
             self.log('Validation perplexity: %g' % valid_stats.ppl())
             self.log('Validation accuracy: %g' % valid_stats.accuracy())
             # TODO(yida)
-            self.log('Validation pos_perplexity: %g' % valid_stats.pos_ppl())
+            self.log('Validation pos_perplexity: %g' % valid_stats.tag_ppl())
 
             self.maybe_log_tensorboard(valid_stats,
                                        "valid",
