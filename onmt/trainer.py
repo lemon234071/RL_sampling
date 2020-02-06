@@ -319,12 +319,12 @@ class Trainer(object):
                     pos_src = None
                     pos_tgt = None
 
-                # TODO(yida) train
+                # TODO(yida) trainer
                 # F-prop through the model.
-                outputs, attns = valid_model(src, tgt, pos_src, pos_tgt, src_lengths)
+                outputs, attns, rnn_outs = valid_model(src, tgt, pos_src, pos_tgt, src_lengths)
 
                 # Compute loss.
-                _, batch_stats = self.valid_loss(batch, outputs, attns)
+                _, batch_stats = self.valid_loss(batch, outputs, attns, rnn_outs)
 
                 # Update statistics.
                 stats.update(batch_stats)
@@ -377,6 +377,7 @@ class Trainer(object):
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:
                     self.optim.zero_grad()
+                # TODO(yida) trainer
                 outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
                 bptt = True
 
@@ -386,6 +387,7 @@ class Trainer(object):
                         batch,
                         outputs,
                         attns,
+                        # TODO(yida) trainer
                         rnn_outs,
                         normalization=normalization,
                         shard_size=self.shard_size,
