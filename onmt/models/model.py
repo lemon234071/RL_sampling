@@ -55,9 +55,9 @@ class NMTModel(nn.Module):
         tag_enc_tgt = tag_tgt if (self.tag_dec or self.mask_attn) else None
         tag_enc = tag_src if self.mask_attn else None
 
-        dec_out, attns = self.decoder(tgt, memory_bank, tag_enc, tag_enc_tgt,
-                                      memory_lengths=lengths)
-        return dec_out, attns
+        dec_out, attns, rnn_outs = self.decoder(tgt, memory_bank, None, tag_enc, tag_enc_tgt,
+                                                memory_lengths=lengths)
+        return dec_out, attns, rnn_outs
 
     def update_dropout(self, dropout):
         self.encoder.update_dropout(dropout)

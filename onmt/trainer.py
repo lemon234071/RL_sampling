@@ -377,7 +377,7 @@ class Trainer(object):
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:
                     self.optim.zero_grad()
-                outputs, attns = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
+                outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
                 bptt = True
 
                 # 3. Compute loss.
@@ -386,6 +386,7 @@ class Trainer(object):
                         batch,
                         outputs,
                         attns,
+                        rnn_outs,
                         normalization=normalization,
                         shard_size=self.shard_size,
                         trunc_start=j,

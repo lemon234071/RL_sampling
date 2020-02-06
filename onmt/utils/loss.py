@@ -130,6 +130,7 @@ class LossComputeBase(nn.Module):
                  batch,
                  output,
                  attns,
+                 rnn_outs,
                  normalization=1.0,
                  shard_size=0,
                  trunc_start=0,
@@ -164,7 +165,7 @@ class LossComputeBase(nn.Module):
         if trunc_size is None:
             trunc_size = batch.tgt.size(0) - trunc_start
         trunc_range = (trunc_start, trunc_start + trunc_size)
-        shard_state = self._make_shard_state(batch, output, trunc_range, attns)
+        shard_state = self._make_shard_state(batch, output, trunc_range, attns, rnn_outs=rnn_outs)
         if shard_size == 0:
             loss, stats = self._compute_loss(batch, **shard_state)
             return loss / float(normalization), stats
@@ -250,13 +251,13 @@ class NMTLossCompute(LossComputeBase):
         self.step = 0
         self.device = device
 
-    def _make_shard_state(self, batch, output, range_, attns=None):
+    def _make_shard_state(self, batch, output, range_, attns=None, rnn_outs=None):
         # TODO(yida) loss
         if self.tag_generator is not None:
             shard_state = {
                 "output": output,
                 "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
-                "tag_output": output.clone(),
+                "tag_output": rnn_outs if rnn_outs is not [] else output.clone(),
                 "tag_target": batch.pos_tgt[range_[0] + 1: range_[1], :, 0]
             }
         else:
@@ -279,7 +280,7 @@ class NMTLossCompute(LossComputeBase):
             })
         return shard_state
 
-    def _compute_loss(self, batch, output, target, tag_output=None, tag_target=None, std_attn=None,
+    def _compute_loss(self, batch, output, target, rnn_out=None, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
         # TODO(yida) loss
         loss_dict = {"loss": torch.tensor(0.0).to(self.device), "tag_loss": torch.tensor(0.0).to(self.device)}

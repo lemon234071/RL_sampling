@@ -514,27 +514,33 @@ class Translator(object):
         else:
             mb_device = memory_bank.device
 
+        # for mask attn
+        tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
             batch_size, mb_device, min_length, self.block_ngram_repeat,
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, self.leanred_t, self.sample_method)
+            self.model.tag_generator is not None, self.leanred_t, self.sample_method, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
             # yida translate
-            pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
+            tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
                 if self.model.tag_generator is not None else None
+            tag_decoder_src = random_sampler.tag_alive_src \
+                if tag_src is not None else None
 
             # yida translate
             log_probs, attn, pos_log_probs = self._decode_and_generate(
                 decoder_input,
-                # yida tranlate
-                pos_decoder_in,
                 memory_bank,
+                # yida tranlate
+                tag_decoder_src,
+                tag_decoder_in,
                 batch,
                 src_vocabs,
                 memory_lengths=memory_lengths,
@@ -608,7 +614,7 @@ class Translator(object):
             else (batch.src, None)
 
         # yida translate
-        if self.model.pos_enc:
+        if self.model.tag_enc:
             pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
         else:
             pos_src = None
@@ -626,9 +632,10 @@ class Translator(object):
     def _decode_and_generate(
             self,
             decoder_in,
-            # yida translate
-            pos_decoder_in,
             memory_bank,
+            # yida translate
+            tag_src,
+            tag_decoder_in,
             batch,
             src_vocabs,
             memory_lengths,
@@ -645,9 +652,10 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        dec_out, dec_attn = self.model.decoder(
+        dec_out, dec_attn, _ = self.model.decoder(
             # yida translate
-            decoder_in, memory_bank, pos_decoder_in, memory_lengths=memory_lengths, step=step
+            decoder_in, memory_bank, self.model.tag_generator,
+            tag_src, tag_decoder_in, memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.
@@ -773,8 +781,9 @@ class Translator(object):
 
             log_probs, attn, _ = self._decode_and_generate(
                 decoder_input,
-                None,
                 memory_bank,
+                None,
+                None,
                 batch,
                 src_vocabs,
                 memory_lengths=memory_lengths,

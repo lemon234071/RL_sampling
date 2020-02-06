@@ -165,6 +165,7 @@ class RNNDecoderBase(DecoderBase):
 
     def init_state(self, src, memory_bank, encoder_final):
         """Initialize decoder state with last state of the encoder."""
+
         def _fix_enc_hidden(hidden):
             # The encoder hidden is  (layers*directions) x batch x dim.
             # We need to convert it to layers x batch x (directions*dim).
@@ -177,7 +178,7 @@ class RNNDecoderBase(DecoderBase):
             self.state["hidden"] = tuple(_fix_enc_hidden(enc_hid)
                                          for enc_hid in encoder_final)
         else:  # GRU
-            self.state["hidden"] = (_fix_enc_hidden(encoder_final), )
+            self.state["hidden"] = (_fix_enc_hidden(encoder_final),)
 
         # Init the input feed.
         batch_size = self.state["hidden"][0].size(1)
@@ -196,7 +197,8 @@ class RNNDecoderBase(DecoderBase):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
         self.state["input_feed"] = self.state["input_feed"].detach()
 
-    def forward(self, tgt, memory_bank, tag_src=None, tag_tgt=None, memory_lengths=None, step=None):
+    def forward(self, tgt, memory_bank, tag_generator, tag_src=None, tag_tgt=None, memory_lengths=None,
+                step=None):
         """
         Args:
             tgt (LongTensor): sequences of padded tokens
@@ -215,9 +217,9 @@ class RNNDecoderBase(DecoderBase):
               ``(tgt_len, batch, src_len)``.
         """
 
-        # TODO(yida) decoder
-        dec_state, dec_outs, attns = self._run_forward_pass(
-            tgt, memory_bank, tag_src, tag_tgt, memory_lengths=memory_lengths)
+        # TODO(yida) decoder, out param bug
+        dec_state, dec_outs, attns, tag_outs = self._run_forward_pass(
+            tgt, memory_bank, tag_generator, tag_src, tag_tgt, memory_lengths=memory_lengths)
 
         # Update the state with the result.
         if not isinstance(dec_state, tuple):
@@ -233,13 +235,15 @@ class RNNDecoderBase(DecoderBase):
         #       (in particular in case of SRU) it was not raising error in 0.3
         #       since stack(Variable) was allowed.
         #       In 0.4, SRU returns a tensor that shouldn't be stacke
+        if tag_outs and type(tag_outs) == list:
+            tag_outs = torch.stack(tag_outs)
         if type(dec_outs) == list:
             dec_outs = torch.stack(dec_outs)
 
             for k in attns:
                 if type(attns[k]) == list:
                     attns[k] = torch.stack(attns[k])
-        return dec_outs, attns
+        return dec_outs, attns, tag_outs
 
     def update_dropout(self, dropout):
         self.dropout.p = dropout
@@ -365,7 +369,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
           G --> H
     """
 
-    def _run_forward_pass(self, tgt, memory_bank, tag_src, tag_tgt, memory_lengths=None):
+    def _run_forward_pass(self, tgt, memory_bank, tag_generator, tag_src, tag_tgt, memory_lengths=None):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -378,6 +382,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         # END Additional args check.
 
         dec_outs = []
+        tag_outs = []
         attns = {}
         if self.attn is not None:
             attns["std"] = []
@@ -401,12 +406,16 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         # TODO(yida) decoder
         iter_emb = emb.split(1)
         if self.pos_embeddings is not None:
-            assert tgt.shape == tag_tgt[:-1].shape
-            tag_emb = self.pos_embeddings(tag_tgt[:-1])
+            if tag_generator is None:
+                assert tgt.shape == tag_tgt[:-1].shape
+                tag_emb = self.pos_embeddings(tag_tgt[:-1])
+            else:
+                assert tgt.shape == tag_tgt.shape
+                tag_emb = self.pos_embeddings(tag_tgt)
             iter_tag_emb = tag_emb.split(1)
         else:
             iter_tag_emb = repeat(None)
-        if tag_src is not None:
+        if tag_src is not None and tag_generator is None:
             iter_tag_tgt = tag_tgt[1:].split(1)
         else:
             iter_tag_tgt = repeat(None)
@@ -416,8 +425,13 @@ class InputFeedRNNDecoder(RNNDecoderBase):
                 decoder_input = torch.cat([emb_t.squeeze(0), tag_emb_t.squeeze(0), input_feed], 1)
             else:
                 decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
-            #decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
+            # decoder_input = torch.cat([emb_t.squeeze(0), input_feed], 1)
             rnn_output, dec_state = self.rnn(decoder_input, dec_state)
+            tag_out = self.dropout(rnn_output)
+            if tag_src is not None and tag_tgt_t is None:
+                with torch.no_grad():
+                    tag_log_probs = tag_generator(tag_out)
+                    tag_tgt_t = tag_log_probs.max(1)[1].unsqueeze(0).unsqueeze(-1)
             if self.attentional:
                 decoder_output, p_attn = self.attn(
                     rnn_output,
@@ -438,6 +452,8 @@ class InputFeedRNNDecoder(RNNDecoderBase):
             input_feed = decoder_output
 
             dec_outs += [decoder_output]
+            if tag_src is not None:
+                tag_outs += [tag_out]
 
             # Update the coverage attention.
             if self._coverage:
@@ -451,12 +467,12 @@ class InputFeedRNNDecoder(RNNDecoderBase):
             elif self._reuse_copy_attn:
                 attns["copy"] = attns["std"]
 
-        return dec_state, dec_outs, attns
+        return dec_state, dec_outs, attns, tag_outs
 
     def _build_rnn(self, rnn_type, input_size,
                    hidden_size, num_layers, dropout):
         assert rnn_type != "SRU", "SRU doesn't support input feed! " \
-            "Please set -input_feed 0!"
+                                  "Please set -input_feed 0!"
         stacked_cell = StackedLSTM if rnn_type == "LSTM" else StackedGRU
         return stacked_cell(num_layers, input_size, hidden_size, dropout)
 
