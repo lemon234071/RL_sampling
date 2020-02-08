@@ -203,22 +203,54 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
             generator = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size, high_num),
-                Cast(torch.float32),
-                gen_func
+                Cast(torch.float32)
+                # gen_func
             )
+            t_generator = nn.Sequential(
+                # nn.Linear(high_num,
+                #           high_num),
+                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
+                # nn.ReLU(),
+                # nn.Dropout(),
+                nn.Linear(high_num,
+                          20),  # len(fields["tgt"].base_field.vocab)
+                Cast(torch.float32)
+            ) if model_opt.t_gen else None
+
+            low_num = len(fields["tgt"].base_field.vocab) - high_num
             low_generator = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size,
-                          len(fields["tgt"].base_field.vocab) - high_num),
-                Cast(torch.float32),
-                gen_func
+                          low_num),
+                Cast(torch.float32)
+                # gen_func
             )
+            low_t_generator = nn.Sequential(
+                # nn.Linear(low_num,
+                #           low_num),
+                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
+                # nn.ReLU(),
+                # nn.Dropout(),
+                nn.Linear(low_num,
+                          20),  # len(fields["tgt"].base_field.vocab)
+                Cast(torch.float32)
+            ) if model_opt.t_gen else None
         else:
             generator = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size,
                           len(fields["tgt"].base_field.vocab)),
-                Cast(torch.float32),
-                gen_func
+                Cast(torch.float32)
+                # gen_func
             )
+            t_generator = nn.Sequential(
+                # nn.Linear(len(fields["tgt"].base_field.vocab),
+                #           len(fields["tgt"].base_field.vocab)),
+                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
+                # nn.ReLU(),
+                # nn.Dropout(),
+                nn.Linear(len(fields["tgt"].base_field.vocab),
+                          20),  # len(fields["tgt"].base_field.vocab)
+                Cast(torch.float32)
+            ) if model_opt.t_gen else None
         if model_opt.share_decoder_embeddings:
             generator[0].weight = decoder.embeddings.word_lut.weight
 
@@ -256,6 +288,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             tag_generator.load_state_dict(checkpoint['tag_generator'], strict=False)
         if model_opt.tag_gen == "multi":
             low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
+            if model_opt.t_gen:
+                low_t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
+        if model_opt.t_gen:
+            t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
@@ -268,6 +304,12 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             if model_opt.tag_gen == "multi":
                 for p in low_generator.parameters():
+                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+                if model_opt.t_gen:
+                    for p in low_t_generator.parameters():
+                        p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            if model_opt.t_gen:
+                for p in t_generator.parameters():
                     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
@@ -285,6 +327,14 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 for p in low_generator.parameters():
                     if p.dim() > 1:
                         xavier_uniform_(p)
+                if model_opt.t_gen:
+                    for p in low_t_generator.parameters():
+                        if p.dim() > 1:
+                            xavier_uniform_(p)
+            if model_opt.t_gen:
+                for p in t_generator.parameters():
+                    if p.dim() > 1:
+                        xavier_uniform_(p)
 
         if hasattr(model.encoder, 'embeddings'):
             model.encoder.embeddings.load_pretrained_vectors(
@@ -297,6 +347,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # TODO(yida) build model
     model.tag_generator = tag_generator if model_opt.tag_gen else None
     model.low_generator = low_generator if model_opt.tag_gen == "multi" else None
+    model.t_generator = t_generator
+    model.low_t_generator = low_t_generator
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

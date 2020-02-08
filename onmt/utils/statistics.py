@@ -18,10 +18,11 @@ class Statistics(object):
     * elapsed time
     """
 
-    def __init__(self, loss=0, loss_tag_gen=0, n_words=0, n_correct=0):
+    def __init__(self, loss=0, loss_tag_gen=0, loss_t=0, n_words=0, n_correct=0):
         self.loss = loss
         # TODO(yida) loss
         self.loss_tag_gen = loss_tag_gen
+        self.loss_t = loss_t
 
         self.n_words = n_words
         self.n_correct = n_correct
@@ -85,6 +86,7 @@ class Statistics(object):
         self.loss += stat.loss
         # TODO(yida) loss
         self.loss_tag_gen += stat.loss_tag_gen
+        self.loss_t += stat.loss_t
         self.n_words += stat.n_words
         self.n_correct += stat.n_correct
 
@@ -112,6 +114,9 @@ class Statistics(object):
         """ compute perplexity """
         return math.exp(min(self.loss_tag_gen / self.n_words, 100))
 
+    def t_ppl(self):
+        return math.exp(min(self.loss_t / self.n_words, 100))
+
     def elapsed_time(self):
         """ compute elapsed time """
         return time.time() - self.start_time
@@ -129,13 +134,14 @@ class Statistics(object):
         if num_steps > 0:
             step_fmt = "%s/%5d" % (step_fmt, num_steps)
         logger.info(
-            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; tag_ppl: %5.2f; tag_xent: %4.2f; " +
+            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; t_ppl: %5.2f; tag_ppl: %5.2f; tag_xent: %4.2f; " +
              "lr: %7.5f; %3.0f/%3.0f tok/s; %6.0f sec")
             % (step_fmt,
                self.accuracy(),
                self.ppl(),
                self.xent(),
                # TODO(yida) loss
+               self.t_ppl(),
                self.tag_ppl(),
                self.tag_xent(),
                learning_rate,

@@ -293,7 +293,7 @@ class Translator(object):
             self,
             src,
             # yida translate
-            pos_src,
+            tag_src,
             tgt=None,
             src_dir=None,
             batch_size=None,
@@ -326,7 +326,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
                      if tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", src), ("tgt", tgt), ("pos_src", pos_src)] if tgt else [("src", src), ("pos_src", pos_src)],
+            data=[("src", src), ("tgt", tgt), ("pos_src", tag_src)] if tgt else [("src", src), ("pos_src", tag_src)],
             dirs=[src_dir, None, None] if tgt else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
@@ -652,7 +652,7 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        dec_out, dec_attn, _ = self.model.decoder(
+        dec_out, dec_attn, rnn_outs = self.model.decoder(
             # yida translate
             decoder_in, memory_bank, self.model.tag_generator,
             tag_src, tag_decoder_in, memory_lengths=memory_lengths, step=step
@@ -666,7 +666,7 @@ class Translator(object):
                 attn = None
             # yida translate
             tag_log_probs = self.model.tag_generator(
-                dec_out.squeeze(0)) if self.model.tag_generator is not None else None
+                rnn_outs.squeeze(0)) if self.model.tag_generator is not None else None
             tag_argmax = tag_log_probs.max(1)[1]
             if self.model.low_generator is not None:
                 high_indices = tag_argmax.eq(4)

@@ -5,9 +5,8 @@ from itertools import repeat
 
 import torch
 
-from onmt.inputters.inputter import load_old_vocab, old_style_vocab
-from onmt.models import build_model_saver
 from onmt.rl.model_builder import build_model
+from onmt.rl.model_saver import build_model_saver
 from onmt.rl.step_trainer import build_rltor_dec
 from onmt.rl.trainer import build_rltor_enc
 from onmt.utils.logging import logger
@@ -57,33 +56,33 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         ArgumentParser.update_model_opts(model_opt)
         # ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
-        vocab = checkpoint['vocab']
+        # vocab = checkpoint['vocab']
     else:
         checkpoint = None
         model_opt = opt
-        vocab = torch.load(opt.data + '.vocab.pt')
+        # vocab = torch.load(opt.data + '.vocab.pt')
 
     # check for code where vocab is saved instead of fields
     # (in the future this will be done in a smarter way)
-    if old_style_vocab(vocab):
-        fields = load_old_vocab(
-            vocab, opt.model_type, dynamic_dict=opt.copy_attn)
-    else:
-        fields = vocab
-
-    # Report src and tgt vocab sizes, including for features
-    for side in ['src']:
-        f = fields[side]
-        try:
-            f_iter = iter(f)
-        except TypeError:
-            f_iter = [(side, f)]
-        for sn, sf in f_iter:
-            if sf.use_vocab:
-                logger.info(' * %s vocab size = %d' % (sn, len(sf.vocab)))
+    # if old_style_vocab(vocab):
+    #     fields = load_old_vocab(
+    #         vocab, opt.model_type, dynamic_dict=opt.copy_attn)
+    # else:
+    #     fields = vocab
+    #
+    # # Report src and tgt vocab sizes, including for features
+    # for side in ['src']:
+    #     f = fields[side]
+    #     try:
+    #         f_iter = iter(f)
+    #     except TypeError:
+    #         f_iter = [(side, f)]
+    #     for sn, sf in f_iter:
+    #         if sf.use_vocab:
+    #             logger.info(' * %s vocab size = %d' % (sn, len(sf.vocab)))
 
     # Build model.
-    rl_model = build_model(model_opt, opt, fields, checkpoint)
+    rl_model = build_model(model_opt, opt, checkpoint)
 
     _check_save_model_path(opt)
 
@@ -92,12 +91,12 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     optim = Optimizer.from_opt(rl_model, opt, checkpoint=checkpoint)
 
     # Build model saver
-    model_saver = build_model_saver(model_opt, opt, rl_model, fields, optim)
+    model_saver = build_model_saver(model_opt, opt, rl_model, optim)
     # model_saver = None
 
     # trainer = build_trainer(
     #     opt, device_id, model, fields, optim, model_saver=model_saver)
-    build_rltor = build_rltor_dec if opt.rl_step else build_rltor_enc
+    build_rltor = build_rltor_enc if not opt.rl_step else build_rltor_dec
     rltor = build_rltor(opt, rl_model, optim, model_saver, report_score=False)
 
     src_shards = split_corpus(opt.src, opt.shard_size)

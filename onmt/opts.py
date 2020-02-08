@@ -131,6 +131,8 @@ def model_opts(parser):
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
     # yida model
+    group.add('--t_gen', '-t_gen', action='store_true',
+              help="t_gen")
     group.add('--mask_attn', '-mask_attn', action='store_true',
               help="mask_attn")
     group.add('--tag_gen', '-tag_gen', type=str, default=None,
@@ -751,7 +753,9 @@ def translate_opts(parser):
               type=int, default=3, choices=[3, 1],
               help="Using grayscale image can training "
                    "model faster and smaller")
-
+    # yida translate
+    group.add('--learned_t', '-learned_t', default=0.1, type=float,
+              help="learned_t.")
     # yida sampling
     group.add('--infer', '-infer', action='store_true', help="infer.")
     group.add('--sample_method', '-sample_method', default='greedy',
@@ -759,10 +763,24 @@ def translate_opts(parser):
               help="")
     group.add('--rl_step', '-rl_step', action='store_true',
               help=".")
-    group.add('--learned_t', '-learned_t', default=0.1, type=float,
-              help="learned_t.")
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
+
+    group.add('--valid_src', '-valid_src', required=False,
+              help="valid source sequence to decode (one line per "
+                   "sequence)")
+    group.add('--valid_tgt', '-valid_tgt', required=False,
+              help="valid response sequence to decode (one line per "
+                   "sequence)")
+    group.add('--tag_src', '-pos_src', required=False,
+              help="POS source sequence to decode (one line per "
+                   "sequence)")
+    group.add('--tag_tgt', '-tag_tgt', required=False,
+              help="tag target sequence to decode (one line per "
+                   "sequence)")
+    group.add('--valid_tag_tgt', '-valid_tag_tgt', required=False,
+              help="valid tag target sequence to decode (one line per "
+                   "sequence)")
 
     group.add('--reset_optim', '-reset_optim', default='none',
               choices=['none', 'all', 'states', 'keep_states'],
@@ -773,8 +791,6 @@ def translate_opts(parser):
               help="Model filename (the model will be saved as "
                    "<save_model>_N.pt where N is the number "
                    "of steps")
-    group.add('--world_size', '-world_size', default=1, type=int,
-              help="total number of distributed processes.")
     group.add('--single_pass', '-single_pass', action='store_true',
               help="Make a single pass over the training dataset.")
     group.add('--pool_factor', '-pool_factor', type=int, default=8192,
@@ -784,20 +800,7 @@ def translate_opts(parser):
               homogeneous batches and reduce padding, and yield
               the produced batches in a shuffled way.
               Inspired by torchtext's pool mechanism.""")
-    group.add('--gpu_ranks', '-gpu_ranks', default=[], nargs='*', type=int,
-              help="list of ranks of each process.")
-    group.add('--valid_src', '-valid_src', required=False,
-              help="valid source sequence to decode (one line per "
-                   "sequence)")
-    group.add('--valid_tgt', '-valid_tgt', required=False,
-              help="valid response sequence to decode (one line per "
-                   "sequence)")
-    group.add('--pos_src', '-pos_src', required=False,
-              help="POS source sequence to decode (one line per "
-                   "sequence)")
-    group.add('--data', '-data', required=False,
-              help='Path prefix to the ".train.pt" and '
-                   '".valid.pt" file path from preprocess.py')
+
     group = parser.add_argument_group('Initialization')
     group.add('--train_from', '-train_from', default='', type=str,
               help="If training from a checkpoint then this is the "
@@ -907,7 +910,6 @@ def translate_opts(parser):
               help="Use a custom decay rate.")
     group.add('--warmup_steps', '-warmup_steps', type=int, default=4000,
               help="Number of warmup steps for custom decay.")
-
 
 
 # Copyright 2016 The Chromium Authors. All rights reserved.

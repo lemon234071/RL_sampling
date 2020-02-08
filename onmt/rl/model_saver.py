@@ -7,11 +7,10 @@ import torch
 from onmt.utils.logging import logger
 
 
-def build_model_saver(model_opt, opt, model, fields, optim):
+def build_model_saver(model_opt, opt, model, optim):
     model_saver = ModelSaver(opt.save_model,
                              model,
                              model_opt,
-                             fields,
                              optim,
                              opt.keep_checkpoint)
     return model_saver
@@ -25,12 +24,11 @@ class ModelSaverBase(object):
     * `_rm_checkpoint
     """
 
-    def __init__(self, base_path, model, model_opt, fields, optim,
+    def __init__(self, base_path, model, model_opt, optim,
                  keep_checkpoint=-1):
         self.base_path = base_path
         self.model = model
         self.model_opt = model_opt
-        self.fields = fields
         self.optim = optim
         self.last_saved_step = None
         self.keep_checkpoint = keep_checkpoint
@@ -102,32 +100,17 @@ class ModelSaver(ModelSaverBase):
         generator_state_dict = model.generator.state_dict()
         tag_generator_state_dict = model.tag_generator.state_dict() if model.tag_generator is not None else None
         low_generator_state_dict = model.low_generator.state_dict() if model.low_generator is not None else None
-        t_generator_state_dict = model.t_generator.state_dict() if model.t_generator is not None else None
-        low_t_generator_state_dict = model.low_t_generator.state_dict() if model.low_t_generator is not None else None
 
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
 
         # TODO(yida) build model
-        vocab = deepcopy(self.fields)
-        for side in ["src", "tgt"]:
-            keys_to_pop = []
-            if hasattr(vocab[side], "fields"):
-                unk_token = vocab[side].fields[0][1].vocab.itos[0]
-                for key, value in vocab[side].fields[0][1].vocab.stoi.items():
-                    if value == 0 and key != unk_token:
-                        keys_to_pop.append(key)
-                for key in keys_to_pop:
-                    vocab[side].fields[0][1].vocab.stoi.pop(key, None)
 
         checkpoint = {
             'model': model_state_dict,
             'generator': generator_state_dict,
             'tag_generator': tag_generator_state_dict,
             'low_generator': low_generator_state_dict,
-            't_generator': t_generator_state_dict,
-            'low_t_generator': low_t_generator_state_dict,
-            'vocab': vocab,
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }

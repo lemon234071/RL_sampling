@@ -53,8 +53,6 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     use_raw_logits = isinstance(criterion, SparsemaxLoss)
     loss_gen = model.generator[0] if use_raw_logits else model.generator
     # TODO(yida) loss
-    tag_loss_gen = model.tag_generator
-    low_loss_gen = model.low_generator
     if opt.copy_attn:
         compute = onmt.modules.CopyGeneratorLossCompute(
             criterion, loss_gen, tgt_field.vocab, opt.copy_loss_by_seqlength,
@@ -63,7 +61,9 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         # TODO(yida) loss
         compute = NMTLossCompute(
-            criterion, loss_gen, tag_loss_gen, low_loss_gen, opt.statistic, opt.high_rate, device, train=train,
+            criterion, loss_gen,
+            model.tag_generator, model.low_generator, model.t_generator, model.low_t_generator,
+            opt.statistic, opt.high_rate, device, train=train,
             lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
@@ -192,7 +192,10 @@ class LossComputeBase(nn.Module):
         num_non_padding = non_padding.sum().item()
         # return onmt.utils.Statistics(loss, num_non_padding, num_correct)
         # TODO(yida) loss
-        return onmt.utils.Statistics(loss["loss"].item(), loss["tag_loss"].item(), num_non_padding, num_correct)
+        return onmt.utils.Statistics(loss["loss"].item(),
+                                     loss["tag_loss"].item(),
+                                     loss["t_loss"].item(),
+                                     num_non_padding, num_correct)
 
     def _bottle(self, _v):
         return _v.view(-1, _v.size(2))
@@ -238,13 +241,18 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, tag_generator, low_generator, sta, high_rate, device, train=False,
+    def __init__(self, criterion, generator,
+                 tag_generator, low_generator, t_generator, low_t_generator, sta, high_rate,
+                 device,
+                 train=False,
                  normalization="sents",
                  lambda_coverage=0.0):
         super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
         self.tag_generator = tag_generator
         self.low_generator = low_generator
+        self.t_generator = t_generator
+        self.low_t_generator = low_t_generator
         self.high_rate = high_rate
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
@@ -283,7 +291,9 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, rnn_out=None, tag_output=None, tag_target=None, std_attn=None,
                       coverage_attn=None):
         # TODO(yida) loss
-        loss_dict = {"loss": torch.tensor(0.0).to(self.device), "tag_loss": torch.tensor(0.0).to(self.device)}
+        loss_dict = {"loss": torch.tensor(0.0).to(self.device),
+                     "tag_loss": torch.tensor(0.0).to(self.device),
+                     "t_loss": torch.tensor(0.0).to(self.device)}
         bottled_output = self._bottle(output)
         gtruth = target.view(-1)
         tag_scores = None
@@ -301,7 +311,7 @@ class NMTLossCompute(LossComputeBase):
             self.writer.add_scalars("sta_acc",
                                     {"acc": 100 * num_correct_tag / num_non_padding_tag},
                                     self.step)
-            # for multi
+        # for multi
         if self.low_generator is not None:
             # pred_tag_index = tag_scores.max(1)[1]
             # high_index = pred_tag_index.eq(4)
@@ -317,9 +327,25 @@ class NMTLossCompute(LossComputeBase):
             high_scores, low_scores = None, None
             if high_output.shape[0] > 0:
                 high_scores = self.generator(high_output)
+                if self.t_generator is not None:
+                    logits_t = self.t_generator(high_scores)
+                    t = self.t_gen_func(logits_t)
+                    t_scores = high_scores / t
+                    t_scores = torch.log_softmax(t_scores, dim=-1)
+                    loss_dict["t_loss"] += self.criterion(t_scores, high_gt)
+                    self.writer.add_scalars("sta_t/high_t", {"high_t": t.mean()}, self.step)
+                high_scores = torch.log_softmax(high_scores, dim=-1)
                 loss_dict["loss"] += self.criterion(high_scores, high_gt)
             if low_output.shape[0] > 0:
                 low_scores = self.low_generator(low_output)
+                if self.low_t_generator is not None:
+                    logits_t = self.low_t_generator(low_scores)
+                    t = self.t_gen_func(logits_t)
+                    t_scores = low_scores / t
+                    t_scores = torch.log_softmax(t_scores, dim=-1)
+                    loss_dict["t_loss"] += self.criterion(t_scores, low_gt)
+                    self.writer.add_scalars("sta_t/low_t", {"low_t": t.mean()}, self.step)
+                low_scores = torch.log_softmax(low_scores, dim=-1)
                 loss_dict["loss"] += self.criterion(low_scores, low_gt)
             if self.sta:
                 self._multi_sta(high_scores, low_scores, high_gt, low_gt)
@@ -327,6 +353,12 @@ class NMTLossCompute(LossComputeBase):
             scores = bottled_output
         else:
             scores = self.generator(bottled_output)
+            if self.t_generator is not None:
+                logits_t = self.t_generator(scores)
+                t = self.t_gen_func(logits_t)
+                t_scores = scores / t
+                loss_dict["t_loss"] += self.criterion(t_scores, gtruth)
+            scores = torch.log_softmax(scores, dim=-1)
             gtruth = target.view(-1)
 
             loss_dict["loss"] = self.criterion(scores, gtruth)
@@ -348,6 +380,11 @@ class NMTLossCompute(LossComputeBase):
         covloss = torch.min(std_attn, coverage_attn).sum()
         covloss *= self.lambda_coverage
         return covloss
+
+    def t_gen_func(self, logits):
+        probs = (logits * 1e8).softmax(dim=-1)
+        index = torch.arange(1, probs.shape[-1] + 1, dtype=torch.float, device=self.device).unsqueeze(-1)
+        return torch.mm(probs, index) / 10
 
     def _sta(self, scores, gtruth, tag_scores):
         # probs

@@ -120,7 +120,7 @@ def load_test_model(opt, model_path=None):
     return fields, model, model_opt
 
 
-def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
+def build_base_model(model_opt, gpu, checkpoint=None, gpu_id=None):
     """Build a model from opts.
 
     Args:
@@ -157,10 +157,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     model = nn.Sequential(
         nn.Linear(model_opt.enc_rnn_size,
                   model_opt.enc_rnn_size),
-        Cast(torch.float32),
         # nn.BatchNorm1d(model_opt.enc_rnn_size),
         nn.ReLU(),
-        nn.Dropout(0.5)
+        nn.Dropout()
     )
 
     # Build Generator.
@@ -210,8 +209,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     return model
 
 
-def build_model(model_opt, opt, fields, checkpoint):
+def build_model(model_opt, opt, checkpoint):
     logger.info('Building model...')
-    model = build_base_model(model_opt, fields, use_gpu(opt), checkpoint)
+    model = build_base_model(model_opt, use_gpu(opt), checkpoint)
     logger.info(model)
     return model

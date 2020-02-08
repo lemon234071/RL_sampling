@@ -19,7 +19,8 @@ def translate(opt):
     translator = build_translator(opt, report_score=True)
     src_shards = split_corpus(opt.src, opt.shard_size)
     # yida translate
-    tag_src_shards = split_corpus(opt.pos_src, opt.shard_size)
+    tag_src_shards = split_corpus(opt.tag_src, opt.shard_size) \
+        if opt.tag_src is not None else repeat(None)
     tgt_shards = split_corpus(opt.tgt, opt.shard_size) \
         if opt.tgt is not None else repeat(None)
     # yida translate

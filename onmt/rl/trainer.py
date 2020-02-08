@@ -371,10 +371,10 @@ class Translator(object):
             self,
             train_src,
             train_tgt,
-            train_tag_tgt_shard,
+            train_tag_tgt,
             valid_src,
             valid_tgt,
-            valid_tag_tgt_shard,
+            valid_tag_tgt,
             src_dir=None,
             batch_size=None,
             batch_type="sents"):
@@ -402,8 +402,10 @@ class Translator(object):
         train_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt), ("tag_tgt", train_tag_tgt_shard)],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt else [self.src_reader, self.tgt_reader]),
+            data=[("src", train_src), ("tgt", train_tgt), ("tag_tgt", train_tag_tgt)]
+            if train_tag_tgt else [("src", train_src), ("tgt", train_tgt)],
             dirs=[src_dir, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
@@ -423,8 +425,10 @@ class Translator(object):
         valid_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_tgt", valid_tag_tgt_shard)],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt else [self.src_reader, self.tgt_reader]),
+            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_tgt", valid_tag_tgt)]
+            if train_tag_tgt else [("src", valid_src), ("tgt", valid_tgt)],
             dirs=[src_dir, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
@@ -755,14 +759,14 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos, learned_t, sample_method)
+            self.model.tag_generator is not None, vocab_pos, learned_t, sample_method)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
             # yida translate
             pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
-                if self.model.pos_generator is not None else None
+                if self.model.tag_generator is not None else None
 
             # yida translate
             log_probs, attn, pos_log_probs = self._decode_and_generate(
@@ -835,7 +839,7 @@ class Translator(object):
             else (batch.src, None)
 
         # yida translate
-        if self.model.pos_enc:
+        if self.model.tag_enc:
             pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
         else:
             pos_src = None
@@ -872,7 +876,7 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        dec_out, dec_attn = self.model.decoder(
+        dec_out, dec_attn, rnn_out = self.model.decoder(
             # yida translate
             decoder_in, memory_bank, pos_decoder_in, memory_lengths=memory_lengths, step=step
         )
@@ -885,8 +889,8 @@ class Translator(object):
                 attn = None
             log_probs = self.model.generator(dec_out.squeeze(0))
             # yida translate
-            pos_log_probs = self.model.pos_generator(
-                dec_out.squeeze(0)) if self.model.pos_generator is not None else None
+            pos_log_probs = self.model.tag_generator(
+                dec_out.squeeze(0)) if self.model.tag_generator is not None else None
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:
