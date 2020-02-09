@@ -469,7 +469,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -532,7 +532,7 @@ class Translator(object):
 
         k_logits_t = torch.stack([logits_t] * k, -1)
         # k_logits_t = torch.cat([logits_t] * k, 0)
-        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)
+        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)  # .div()
 
         # infer samples(slow or not
         attn_debug = False

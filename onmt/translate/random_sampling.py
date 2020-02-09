@@ -68,8 +68,8 @@ def freq_guide(logits, tag_logits, leanred_t, mask=True):
     low = topk_tag_ids.eq(5)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * leanred_t + low.float() * 1.1
-    logits /= numerator
+    numerator = high.float() * 0.1 + low.float() * 1.1
+    # logits /= numerator
     if mask:
         high_mask = high.squeeze()
         low_mask = low.squeeze()
@@ -131,7 +131,6 @@ def sample_with_dynamic_temperature(logits, tag_logits, learned_t, sample_method
     else:
         if sample_method == "topp":
             logits, _ = get_topp(logits, top_p=0.9)
-            logits /= 1
         # entropy
         # logits = pos_guide(logits, pos_logits)
 

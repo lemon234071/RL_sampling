@@ -32,7 +32,7 @@ def translate(opt):
         translator.translate(
             src=src_shard,
             # yida translate
-            pos_src=tag_shard,
+            tag_src=tag_shard,
             tgt=tgt_shard,
             src_dir=opt.src_dir,
             batch_size=opt.batch_size,

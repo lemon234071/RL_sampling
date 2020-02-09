@@ -289,7 +289,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         if model_opt.tag_gen == "multi":
             low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
             if model_opt.t_gen:
-                low_t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
+                low_t_generator.load_state_dict(checkpoint['low_t_generator'], strict=False)
         if model_opt.t_gen:
             t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
     else:
@@ -347,8 +347,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # TODO(yida) build model
     model.tag_generator = tag_generator if model_opt.tag_gen else None
     model.low_generator = low_generator if model_opt.tag_gen == "multi" else None
-    model.t_generator = t_generator
-    model.low_t_generator = low_t_generator
+    model.t_generator = t_generator if model_opt.t_gen else None
+    model.low_t_generator = low_t_generator if model_opt.t_gen else None
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()
