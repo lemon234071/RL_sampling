@@ -172,7 +172,7 @@ class LossComputeBase(nn.Module):
         batch_stats = onmt.utils.Statistics()
         for shard in shards(shard_state, shard_size):
             loss, loss_t, stats = self._compute_loss(batch, **shard)
-            loss_t.div(float(normalization)).backward()
+            # loss_t.div(float(normalization)).backward()
             loss.div(float(normalization)).backward()
             batch_stats.update(stats)
         return None, batch_stats
@@ -356,9 +356,9 @@ class NMTLossCompute(LossComputeBase):
                     t_scores = torch.log_softmax(t_scores, dim=-1)
                     loss_dict["t_loss"] += self.criterion(t_scores, low_gt)
                     self.writer.add_scalars("sta_t/low_t", {"low_t": t.mean()}, self.step)
-                reward = loss_dict["loss"].item() - loss_dict["t_loss"].item()
-                loss_dict["t_loss"] = reward * loss_dict["t_loss"]
-                self.writer.add_scalars("sta_t/loss_t", {"loss_t": temp_loss_t.div(output.shape[1])}, self.step)
+                    reward = loss_dict["loss"].item() - loss_dict["t_loss"].item()
+                    loss_dict["t_loss"] = reward * loss_dict["t_loss"]
+                    self.writer.add_scalars("sta_t/loss_t", {"loss_t": temp_loss_t.div(output.shape[1])}, self.step)
 
             if self.sta:
                 self._multi_sta(high_scores, low_scores, high_gt, low_gt)
