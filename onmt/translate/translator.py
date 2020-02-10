@@ -665,7 +665,7 @@ class Translator(object):
             else:
                 attn = None
             # yida translate
-            tag_outputs = rnn_outs if rnn_outs is not [] else dec_out
+            tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
             tag_log_probs = self.model.tag_generator(
                 tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
             tag_argmax = tag_log_probs.max(1)[1]
@@ -676,22 +676,22 @@ class Translator(object):
                 low_out = dec_out.squeeze(0)[low_indices]
                 assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
                 high_logits = self.model.generator(high_out)
-                # if self.model.t_generator is not None:
-                #     logits_t = self.model.t_generator(high_logits)
-                #     t_probs = (logits_t * 1e8).softmax(dim=-1)
-                #     index = torch.arange(1, t_probs.shape[-1] + 1,
-                #                          dtype=torch.float, device=t_probs.device).unsqueeze(-1)
-                #     t = torch.mm(t_probs, index) / 10
-                #     high_logits = high_logits / t
+                if self.model.t_generator is not None:
+                    logits_t = self.model.t_generator(high_logits)
+                    t_probs = (logits_t * 1e8).softmax(dim=-1)
+                    index = torch.arange(1, t_probs.shape[-1] + 1,
+                                         dtype=torch.float, device=t_probs.device).unsqueeze(-1)
+                    t = torch.mm(t_probs, index) / 10
+                    high_logits = high_logits / t
                 high_probs = torch.log_softmax(high_logits, dim=-1)
                 low_logits = self.model.low_generator(low_out)
-                # if self.model.low_t_generator is not None:
-                #     low_logits_t = self.model.low_t_generator(low_logits)
-                #     low_t_probs = (low_logits_t * 1e8).softmax(dim=-1)
-                #     index = torch.arange(1, low_t_probs.shape[-1] + 1,
-                #                          dtype=torch.float, device=low_t_probs.device).unsqueeze(-1)
-                #     t = torch.mm(low_t_probs, index) / 10
-                #     low_logits = low_logits / t
+                if self.model.low_t_generator is not None:
+                    low_logits_t = self.model.low_t_generator(low_logits)
+                    low_t_probs = (low_logits_t * 1e8).softmax(dim=-1)
+                    index = torch.arange(1, low_t_probs.shape[-1] + 1,
+                                         dtype=torch.float, device=low_t_probs.device).unsqueeze(-1)
+                    t = torch.mm(low_t_probs, index) / 10
+                    low_logits = low_logits / t
                 low_probs = torch.log_softmax(low_logits, dim=-1)
                 high_num = self.model.generator._modules["0"].out_features
                 low_num = self.model.low_generator._modules["0"].out_features
