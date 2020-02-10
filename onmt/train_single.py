@@ -7,11 +7,11 @@ import torch
 from onmt.inputters.inputter import build_dataset_iter, \
     load_old_vocab, old_style_vocab, build_dataset_iter_multiple
 from onmt.model_builder import build_model
-from onmt.utils.optimizers import Optimizer
-from onmt.utils.misc import set_random_seed
-from onmt.trainer import build_trainer
 from onmt.models import build_model_saver
+from onmt.trainer import build_trainer
 from onmt.utils.logging import init_logger, logger
+from onmt.utils.misc import set_random_seed
+from onmt.utils.optimizers import Optimizer
 from onmt.utils.parse import ArgumentParser
 
 
@@ -90,6 +90,8 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     _check_save_model_path(opt)
 
     # Build optimizer.
+    # TODO(yida) temp rl
+    checkpoint = None
     optim = Optimizer.from_opt(model, opt, checkpoint=checkpoint)
 
     # Build model saver

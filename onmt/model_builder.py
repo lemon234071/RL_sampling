@@ -199,6 +199,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             gen_func = nn.LogSoftmax(dim=-1)
 
         # TODO(yida) build model
+        # TODO(yida) temp rl
+        model_opt.t_gen = True
         if model_opt.tag_gen == "multi":
             high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
             generator = nn.Sequential(
@@ -288,10 +290,17 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             tag_generator.load_state_dict(checkpoint['tag_generator'], strict=False)
         if model_opt.tag_gen == "multi":
             low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
+            # TODO(yida) temp rl
             if model_opt.t_gen:
-                low_t_generator.load_state_dict(checkpoint['low_t_generator'], strict=False)
+                for p in low_t_generator.parameters():
+                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.t_gen:
-            t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
+            for p in t_generator.parameters():
+                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+        #     if model_opt.t_gen:
+        #         low_t_generator.load_state_dict(checkpoint['low_t_generator'], strict=False)
+        # if model_opt.t_gen:
+        #     t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():

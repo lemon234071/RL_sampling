@@ -149,7 +149,7 @@ class ReportMgr(ReportMgrBase):
             self.log('Validation perplexity: %g' % valid_stats.ppl())
             self.log('Validation accuracy: %g' % valid_stats.accuracy())
             # TODO(yida)
-            self.log('Validation t_perplexity: %g' % valid_stats.t_ppl())
+            self.log('Validation t_perplexity: %g' % valid_stats.t_xent())
             self.log('Validation tag_perplexity: %g' % valid_stats.tag_ppl())
 
             self.maybe_log_tensorboard(valid_stats,

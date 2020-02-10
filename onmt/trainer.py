@@ -378,8 +378,10 @@ class Trainer(object):
                 if self.accum_count == 1:
                     self.optim.zero_grad()
                 # TODO(yida) trainer
-                outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
-                bptt = True
+                # TODO(yida) temp rl
+                with torch.no_grad():
+                    outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
+                    # bptt = True
 
                 # 3. Compute loss.
                 try:

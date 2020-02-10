@@ -120,7 +120,7 @@ def load_test_model(opt, model_path=None):
     return fields, model, model_opt
 
 
-def build_base_model(model_opt, gpu, checkpoint=None, gpu_id=None):
+def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     """Build a model from opts.
 
     Args:
@@ -154,21 +154,18 @@ def build_base_model(model_opt, gpu, checkpoint=None, gpu_id=None):
     #  model = onmt.models.NMTModel(encoder, decoder, model_opt.pos_enc, model_opt.pos_dec)
     gen_func = nn.LogSoftmax(dim=-1)
 
-    model = nn.Sequential(
-        nn.Linear(model_opt.enc_rnn_size,
-                  model_opt.enc_rnn_size),
-        # nn.BatchNorm1d(model_opt.enc_rnn_size),
-        nn.ReLU(),
-        nn.Dropout()
-    )
-
-    # Build Generator.
+    # model = nn.Sequential(
+    #     nn.Linear(model_opt.enc_rnn_size,
+    #               model_opt.enc_rnn_size),
+    #     # nn.BatchNorm1d(model_opt.enc_rnn_size),
+    #     nn.ReLU(),
+    #     nn.Dropout()
+    # )
     output_size = 54 if model_opt.sample_method == "topk" else 20
-    generator = nn.Sequential(
-        nn.Linear(model_opt.enc_rnn_size,
-                  output_size),  # len(fields["tgt"].base_field.vocab)
-        Cast(torch.float32),
-        gen_func
+    input_size = len(fields["tgt"].base_field.vocab) if model_opt.rl_step else model_opt.enc_rnn_size
+    model = nn.Sequential(
+        nn.Linear(input_size, output_size),
+        Cast(torch.float32)
     )
 
     # Load the model states from checkpoint or initialize them.
@@ -186,31 +183,23 @@ def build_base_model(model_opt, gpu, checkpoint=None, gpu_id=None):
         # end of patch for backward compatibility
 
         model.load_state_dict(checkpoint['model'], strict=False)
-        generator.load_state_dict(checkpoint['generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
-                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            for p in generator.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
-            for p in generator.parameters():
-                if p.dim() > 1:
-                    xavier_uniform_(p)
-    # yida rl
-    # model = generator
-    model.generator = generator
+
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()
     return model
 
 
-def build_model(model_opt, opt, checkpoint):
+def build_model(model_opt, opt, fields, checkpoint):
     logger.info('Building model...')
-    model = build_base_model(model_opt, use_gpu(opt), checkpoint)
+    model = build_base_model(model_opt, fields, use_gpu(opt), checkpoint)
     logger.info(model)
     return model

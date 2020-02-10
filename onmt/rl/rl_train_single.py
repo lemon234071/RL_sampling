@@ -5,6 +5,7 @@ from itertools import repeat
 
 import torch
 
+from onmt.inputters.inputter import load_old_vocab, old_style_vocab
 from onmt.rl.model_builder import build_model
 from onmt.rl.model_saver import build_model_saver
 from onmt.rl.step_trainer import build_rltor_dec
@@ -56,33 +57,33 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         ArgumentParser.update_model_opts(model_opt)
         # ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
-        # vocab = checkpoint['vocab']
+        vocab = checkpoint['vocab']
     else:
         checkpoint = None
         model_opt = opt
-        # vocab = torch.load(opt.data + '.vocab.pt')
+        vocab = torch.load(opt.data + '.vocab.pt')
 
     # check for code where vocab is saved instead of fields
     # (in the future this will be done in a smarter way)
-    # if old_style_vocab(vocab):
-    #     fields = load_old_vocab(
-    #         vocab, opt.model_type, dynamic_dict=opt.copy_attn)
-    # else:
-    #     fields = vocab
-    #
-    # # Report src and tgt vocab sizes, including for features
-    # for side in ['src']:
-    #     f = fields[side]
-    #     try:
-    #         f_iter = iter(f)
-    #     except TypeError:
-    #         f_iter = [(side, f)]
-    #     for sn, sf in f_iter:
-    #         if sf.use_vocab:
-    #             logger.info(' * %s vocab size = %d' % (sn, len(sf.vocab)))
+    if old_style_vocab(vocab):
+        fields = load_old_vocab(
+            vocab, opt.model_type, dynamic_dict=opt.copy_attn)
+    else:
+        fields = vocab
+
+    # Report src and tgt vocab sizes, including for features
+    for side in ['src', 'tgt']:
+        f = fields[side]
+        try:
+            f_iter = iter(f)
+        except TypeError:
+            f_iter = [(side, f)]
+        for sn, sf in f_iter:
+            if sf.use_vocab:
+                logger.info(' * %s vocab size = %d' % (sn, len(sf.vocab)))
 
     # Build model.
-    rl_model = build_model(model_opt, opt, checkpoint)
+    rl_model = build_model(model_opt, opt, fields, checkpoint)
 
     _check_save_model_path(opt)
 
@@ -113,23 +114,30 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         valid_src_shards = split_corpus(opt.valid_src, opt.shard_size)
         valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size)
 
+        tag_src_shards = split_corpus(opt.tag_src, opt.shard_size) \
+            if opt.tag_tgt is not None else repeat(None)
+        valid_tag_src_shards = split_corpus(opt.valid_tag_src, opt.shard_size) \
+            if opt.valid_tag_tgt is not None else repeat(None)
         tag_tgt_shards = split_corpus(opt.tag_tgt, opt.shard_size) \
             if opt.tag_tgt is not None else repeat(None)
         valid_tag_tgt_shards = split_corpus(opt.valid_tag_tgt, opt.shard_size) \
             if opt.valid_tag_tgt is not None else repeat(None)
 
-        shard_pairs = zip(src_shards, tgt_shards, tag_tgt_shards,
-                          valid_src_shards, valid_tgt_shards, valid_tag_tgt_shards)
+        shard_pairs = zip(src_shards, tgt_shards, tag_src_shards, tag_tgt_shards,
+                          valid_src_shards, valid_tgt_shards, valid_tag_src_shards,
+                          valid_tag_tgt_shards)
 
-        for i, (train_src_shard, train_tgt_shard, train_tag_tgt_shard,
-                valid_src_shard, valid_tgt_shard, valid_tag_tgt_shard) in enumerate(shard_pairs):
+        for i, (train_src_shard, train_tgt_shard, train_tag_src_shard, train_tag_tgt_shard,
+                valid_src_shard, valid_tgt_shard, valid_tag_src_shard, valid_tag_tgt_shard) in enumerate(shard_pairs):
             logger.info("Learning shard %d." % i)
             rltor.train(
                 train_src_shard,
                 train_tgt_shard,
+                train_tag_src_shard,
                 train_tag_tgt_shard,
                 valid_src_shard,
                 valid_tgt_shard,
+                valid_tag_src_shard,
                 valid_tag_tgt_shard,
                 src_dir=opt.src_dir,
                 batch_size=opt.batch_size,

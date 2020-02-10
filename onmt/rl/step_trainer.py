@@ -312,13 +312,15 @@ class Translator(object):
             self,
             train_src,
             train_tgt,
+            train_tag_src,
+            train_tag_tgt,
             valid_src,
             valid_tgt,
+            valid_tag_src,
+            valid_tag_tgt,
             src_dir=None,
             batch_size=None,
-            batch_type="sents",
-            attn_debug=False,
-            phrase_table=""):
+            batch_type="sents"):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -343,9 +345,11 @@ class Translator(object):
         train_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt)],
-            dirs=[src_dir, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
+            data=[("src", train_src), ("tgt", train_tgt), ("pos_src", train_tag_src), ("pos_tgt", train_tag_tgt)]
+            if train_tag_tgt is not None else [("src", train_src), ("tgt", train_tgt)],
+            dirs=[src_dir, None, None, None] if train_tag_tgt is not None else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -356,7 +360,7 @@ class Translator(object):
             batch_size=batch_size,
             pool_factor=8192,
             batch_size_fn=max_tok_len if batch_type == "tokens" else None,
-            train=False,
+            train=True,
             sort=False,
             sort_within_batch=True
         )
@@ -364,9 +368,11 @@ class Translator(object):
         valid_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt)],
-            dirs=[src_dir, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
+            data=[("src", valid_src), ("tgt", valid_tgt), ("pos_src", valid_tag_src), ("pos_tgt", valid_tag_tgt)]
+            if train_tag_tgt is not None else [("src", valid_src), ("tgt", valid_tgt)],
+            dirs=[src_dir, None, None, None] if train_tag_tgt is not None else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -450,11 +456,9 @@ class Translator(object):
             self.optim.backward(loss)
         self.optim.step()
 
-    def _compute_loss_k(self, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
-        k = self.samples_n
-
+    def _compute_loss_k(self, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths,
+                        attn_debug=False):
         # infer samples(slow or not
-        attn_debug = False
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         batch_data = self.translate_batch(
@@ -648,7 +652,7 @@ class Translator(object):
             keep_topk=-1,
             return_attention=False,
             # yida RL translate
-            vocab_pos=None):
+            vocab_pos=None, tf=True):
         """Alternative to beam search. Do random sampling at each step."""
 
         assert self.beam_size == 1
@@ -683,27 +687,30 @@ class Translator(object):
         else:
             mb_device = memory_bank.device
 
+        tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
             batch_size, mb_device, min_length, self.block_ngram_repeat,
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.pos_generator is not None, vocab_pos, 1)
+            self.model.tag_generator is not None, vocab_pos, 1, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
-            # yida translate
-            pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
-                if self.model.pos_generator is not None else None
+            tag_decoder_src = random_sampler.tag_alive_src \
+                if tag_src is not None else None
+            tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
+                if self.model.tag_generator is not None else None
 
             # yida translate
             log_probs, attn, pos_log_probs, log_probs_t = self._decode_and_generate(
                 decoder_input,
-                # yida tranlate
-                pos_decoder_in,
                 memory_bank,
+                tag_decoder_src,
+                tag_decoder_in,
                 batch,
                 src_vocabs,
                 memory_lengths=memory_lengths,
@@ -711,7 +718,6 @@ class Translator(object):
                 step=step,
                 batch_offset=random_sampler.select_indices
             )
-
 
             # yida tranlate
             random_sampler.advance(log_probs, attn, pos_log_probs, log_probs_t, bl)
@@ -771,7 +777,7 @@ class Translator(object):
             else (batch.src, None)
 
         # yida translate
-        if self.model.pos_enc:
+        if self.model.tag_enc:
             pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
         else:
             pos_src = None
@@ -789,9 +795,9 @@ class Translator(object):
     def _decode_and_generate(
             self,
             decoder_in,
-            # yida translate
-            pos_decoder_in,
             memory_bank,
+            tag_src,
+            tag_decoder_in,
             batch,
             src_vocabs,
             memory_lengths,
@@ -808,9 +814,10 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        dec_out, dec_attn = self.model.decoder(
+        dec_out, dec_attn, rnn_out = self.model.decoder(
             # yida translate
-            decoder_in, memory_bank, pos_decoder_in, memory_lengths=memory_lengths, step=step
+            decoder_in, memory_bank, self.model.tag_generator,
+            tag_src, tag_decoder_in, memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.

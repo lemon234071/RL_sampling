@@ -114,6 +114,9 @@ class Statistics(object):
         """ compute perplexity """
         return math.exp(min(self.loss_tag_gen / self.n_words, 100))
 
+    def t_xent(self):
+        return self.loss_t / self.n_words
+
     def t_ppl(self):
         return math.exp(min(self.loss_t / self.n_words, 100))
 
@@ -141,7 +144,7 @@ class Statistics(object):
                self.ppl(),
                self.xent(),
                # TODO(yida) loss
-               self.t_ppl(),
+               self.t_xent(),
                self.tag_ppl(),
                self.tag_xent(),
                learning_rate,

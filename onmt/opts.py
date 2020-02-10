@@ -225,13 +225,13 @@ def preprocess_opts(parser):
     group.add('--valid_tgt', '-valid_tgt',
               help="Path to the validation target data")
     # TODO(yida)
-    group.add('--train_pos_src', '-train_pos_src', required=True,
+    group.add('--train_tag_src', '-train_tag_src', required=True,
               help="Path to the training target data")
-    group.add('--valid_pos_src', '-valid_pos_src', required=True,
+    group.add('--valid_tag_src', '-valid_tag_src', required=True,
               help="Path to the training target data")
-    group.add('--train_pos_tgt', '-train_pos_tgt', required=True,
+    group.add('--train_tag_tgt', '-train_tag_tgt', required=True,
               help="Path to the training target data")
-    group.add('--valid_pos_tgt', '-valid_pos_tgt', required=True,
+    group.add('--valid_tag_tgt', '-valid_tag_tgt', required=True,
               help="Path to the training target data")
 
     group.add('--src_dir', '-src_dir', default="",
@@ -766,17 +766,23 @@ def translate_opts(parser):
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
 
+    group.add('--data', '-data', required=True,
+              help='Path prefix to the ".train.pt" and '
+                   '".valid.pt" file path from preprocess.py')
     group.add('--valid_src', '-valid_src', required=False,
               help="valid source sequence to decode (one line per "
                    "sequence)")
     group.add('--valid_tgt', '-valid_tgt', required=False,
               help="valid response sequence to decode (one line per "
                    "sequence)")
-    group.add('--tag_src', '-pos_src', required=False,
+    group.add('--tag_src', '-tag_src', required=False,
               help="POS source sequence to decode (one line per "
                    "sequence)")
     group.add('--tag_tgt', '-tag_tgt', required=False,
               help="tag target sequence to decode (one line per "
+                   "sequence)")
+    group.add('--valid_tag_src', '-valid_tag_src', required=False,
+              help="valid tag target sequence to decode (one line per "
                    "sequence)")
     group.add('--valid_tag_tgt', '-valid_tag_tgt', required=False,
               help="valid tag target sequence to decode (one line per "

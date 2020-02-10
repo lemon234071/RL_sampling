@@ -226,7 +226,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos, learned_t):
+                 pos_gen, vocab_pos, learned_t, tag_src):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -259,6 +259,7 @@ class RandomSampling(DecodeStrategy):
         # self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.pos_gen = pos_gen
         # self.learned_t = learned_t
+        self.tag_alive_src = tag_src
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs, log_probs_t, bl):
@@ -342,6 +343,8 @@ class RandomSampling(DecodeStrategy):
         self.alive_lebal = self.alive_lebal[is_alive]
         if self.pos_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
+        if self.tag_alive_src is not None:
+            self.tag_alive_src = self.tag_alive_src[:, is_alive]
 
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]
