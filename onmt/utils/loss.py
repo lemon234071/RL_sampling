@@ -352,7 +352,7 @@ class NMTLossCompute(LossComputeBase):
                         low_t_input = low_logtis.clone().detach()
                         logits_t = self.low_t_generator(low_t_input)
                         t = self.t_gen_func(logits_t)
-                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze())
+                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
                         t = t / 10
                         t_scores = low_t_input / t
                         t_scores = torch.log_softmax(t_scores, dim=-1)
