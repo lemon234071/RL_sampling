@@ -172,7 +172,8 @@ class LossComputeBase(nn.Module):
         batch_stats = onmt.utils.Statistics()
         for shard in shards(shard_state, shard_size):
             loss, stats = self._compute_loss(batch, normalization, **shard)
-            loss.div(float(normalization)).backward()
+            with torch.enable_grad():
+                loss.div(float(normalization)).backward()
             batch_stats.update(stats)
         return None, batch_stats
 

@@ -385,16 +385,18 @@ class Trainer(object):
 
                 # 3. Compute loss.
                 try:
-                    loss, batch_stats = self.train_loss(
-                        batch,
-                        outputs,
-                        attns,
-                        # TODO(yida) trainer
-                        rnn_outs,
-                        normalization=normalization,
-                        shard_size=self.shard_size,
-                        trunc_start=j,
-                        trunc_size=trunc_size)
+                    # TODO(yida) temp rl
+                    with torch.no_grad():
+                        loss, batch_stats = self.train_loss(
+                            batch,
+                            outputs,
+                            attns,
+                            # TODO(yida) trainer
+                            rnn_outs,
+                            normalization=normalization,
+                            shard_size=self.shard_size,
+                            trunc_start=j,
+                            trunc_size=trunc_size)
 
                     if loss is not None:
                         self.optim.backward(loss)
