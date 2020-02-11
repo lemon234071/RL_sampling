@@ -337,12 +337,14 @@ class NMTLossCompute(LossComputeBase):
                         high_t_input = high_logits.clone().detach()
                         logits_t = self.t_generator(high_t_input)
                         t = self.t_gen_func(logits_t)
-                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
-                        t = t / 10
+                        # temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
+                        # t = t / 10
                         t_scores = high_t_input / t
                         t_scores = torch.log_softmax(t_scores, dim=-1)
                         loss_dict["t_loss"] += self.criterion(t_scores, high_gt)
-                        self.writer.add_scalars("sta_t/high_t", {"high_t": t.mean(), "high_t_std": t.std()}, self.step)
+                        self.writer.add_scalars("sta_t/high_t", {"t_mean": t.mean(),
+                                                                 "mean+std": t.mean() + t.std(),
+                                                                 "mean-std": t.mean() - t.std()}, self.step)
 
             if low_output.shape[0] > 0:
                 low_logtis = self.low_generator(low_output)
@@ -353,15 +355,17 @@ class NMTLossCompute(LossComputeBase):
                         low_t_input = low_logtis.clone().detach()
                         logits_t = self.low_t_generator(low_t_input)
                         t = self.t_gen_func(logits_t)
-                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
-                        t = t / 10
+                        # temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
+                        # t = t / 10
                         t_scores = low_t_input / t
                         t_scores = torch.log_softmax(t_scores, dim=-1)
                         loss_dict["t_loss"] += self.criterion(t_scores, low_gt)
-                        self.writer.add_scalars("sta_t/low_t", {"low_t": t.mean(), "low_t_std": t.std()}, self.step)
-            if self.low_t_generator is not None or self.t_generator is not None:
-                with torch.enable_grad():
-                    loss_dict["t_loss"] = loss_dict.get("loss").item() - loss_dict["t_loss"]
+                        self.writer.add_scalars("sta_t/low_t", {"t_mean": t.mean(),
+                                                                "mean+std": t.mean() + t.std(),
+                                                                "mean-std": t.mean() - t.std()}, self.step)
+                # if self.low_t_generator is not None or self.t_generator is not None:
+                #     with torch.enable_grad():
+                #         loss_dict["t_loss"] = loss_dict["t_loss"] - loss_dict.get("loss").item()
                 # loss_dict["t_loss"].div(float(normalization)).backward()
                 self.writer.add_scalars("sta_t/loss_t", {"loss_t": temp_loss_t.div(output.shape[1])}, self.step)
 
@@ -403,6 +407,7 @@ class NMTLossCompute(LossComputeBase):
         return covloss
 
     def t_gen_func(self, logits):
+        return logits * 2 + 1e-4
         probs = (logits * 1).softmax(dim=-1)
         index = torch.arange(1, probs.shape[-1] + 1, dtype=torch.float, device=self.device).unsqueeze(-1)
         return torch.mm(probs, index)

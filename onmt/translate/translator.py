@@ -683,6 +683,7 @@ class Translator(object):
                                          dtype=torch.float, device=t_probs.device).unsqueeze(-1)
                     t = torch.mm(t_probs, index) / 10
                     high_logits = high_logits / t
+                high_logits = high_logits / 0.6
                 high_probs = torch.log_softmax(high_logits, dim=-1)
                 low_logits = self.model.low_generator(low_out)
                 if self.model.low_t_generator is not None:
@@ -692,6 +693,7 @@ class Translator(object):
                                          dtype=torch.float, device=low_t_probs.device).unsqueeze(-1)
                     t = torch.mm(low_t_probs, index) / 10
                     low_logits = low_logits / t
+                low_logits = low_logits / 1.1
                 low_probs = torch.log_softmax(low_logits, dim=-1)
                 high_num = self.model.generator._modules["0"].out_features
                 low_num = self.model.low_generator._modules["0"].out_features

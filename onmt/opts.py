@@ -766,7 +766,7 @@ def translate_opts(parser):
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
 
-    group.add('--data', '-data', required=True,
+    group.add('--data', '-data', required=False,
               help='Path prefix to the ".train.pt" and '
                    '".valid.pt" file path from preprocess.py')
     group.add('--valid_src', '-valid_src', required=False,

@@ -68,7 +68,7 @@ def freq_guide(logits, tag_logits, leanred_t, mask=True):
     low = topk_tag_ids.eq(5)
     # num = high.float().sum() / topk_pos_ids.shape[0]
     # print(num.item())
-    numerator = high.float() * 0.1 + low.float() * 1.1
+    # umerator = high.float() * 0.6 + low.float() * 1.1
     # logits /= numerator
     if mask:
         high_mask = high.squeeze()
