@@ -407,7 +407,7 @@ class NMTLossCompute(LossComputeBase):
         return covloss
 
     def t_gen_func(self, logits):
-        return logits * 2 + 1e-4
+        return logits * 2 + 1e-8
         probs = (logits * 1).softmax(dim=-1)
         index = torch.arange(1, probs.shape[-1] + 1, dtype=torch.float, device=self.device).unsqueeze(-1)
         return torch.mm(probs, index)
