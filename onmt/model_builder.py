@@ -214,9 +214,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # # nn.BatchNorm1d(model_opt.enc_rnn_size),
                 # nn.ReLU(),
                 # nn.Dropout(),
-                nn.Linear(high_num,
-                          1),  # len(fields["tgt"].base_field.vocab)
-                nn.Sigmoid(),
+                nn.Linear(model_opt.dec_rnn_size,
+                          20),  # len(fields["tgt"].base_field.vocab)
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
 
@@ -233,9 +232,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # # nn.BatchNorm1d(model_opt.enc_rnn_size),
                 # nn.ReLU(),
                 # nn.Dropout(),
-                nn.Linear(low_num,
-                          1),  # len(fields["tgt"].base_field.vocab)
-                nn.Sigmoid(),
+                nn.Linear(model_opt.dec_rnn_size,
+                          20),  # len(fields["tgt"].base_field.vocab)
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
         else:

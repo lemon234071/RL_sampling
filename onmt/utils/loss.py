@@ -4,6 +4,8 @@ This includes: LossComputeBase and the standard NMTLossCompute, and
 """
 from __future__ import division
 
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -259,6 +261,7 @@ class NMTLossCompute(LossComputeBase):
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
         self.step = 0
         self.device = device
+        self.train = train
 
     def _make_shard_state(self, batch, output, range_, attns=None, rnn_outs=None):
         # TODO(yida) loss
@@ -289,14 +292,16 @@ class NMTLossCompute(LossComputeBase):
             })
         return shard_state
 
-    def _compute_loss(self, batch, normalization, output, target, rnn_out=None, tag_output=None, tag_target=None,
-                      std_attn=None,
-                      coverage_attn=None):
+    def _compute_loss(self, batch, normalization, output, target,
+                      rnn_out=None, tag_output=None, tag_target=None,
+                      std_attn=None, coverage_attn=None):
         # TODO(yida) loss
-        loss_dict = {"loss": torch.tensor(0.0).to(self.device),
-                     "tag_loss": torch.tensor(0.0).to(self.device),
-                     "t_loss": torch.tensor(0.0).to(self.device)}
-        temp_loss_t = torch.tensor(0.0).to(self.device)
+        with torch.enable_grad():
+            loss_dict = {"loss": torch.tensor(0.0).to(self.device),
+                         "tag_loss": torch.tensor(0.0).to(self.device),
+                         "t_loss": torch.tensor(0.0).to(self.device)}
+            temp_loss_t = torch.tensor(0.0).to(self.device)
+            bl_loss = torch.tensor(0.0).to(self.device)
         bottled_output = self._bottle(output)
         gtruth = target.view(-1)
         tag_scores = None
@@ -335,13 +340,16 @@ class NMTLossCompute(LossComputeBase):
                 if self.t_generator is not None:
                     with torch.enable_grad():
                         high_t_input = high_logits.clone().detach()
-                        logits_t = self.t_generator(high_t_input)
+                        logits_t = self.t_generator(high_output.clone().detach())
                         t = self.t_gen_func(logits_t)
-                        # temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
-                        # t = t / 10
+                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze(1))
+                        t = (t + 1) / 10
                         t_scores = high_t_input / t
                         t_scores = torch.log_softmax(t_scores, dim=-1)
                         loss_dict["t_loss"] += self.criterion(t_scores, high_gt)
+                        bl_t = (logits_t.max(1)[1] + 1).float().unsqueeze(-1) / 10
+                        bl_t_scores = torch.log_softmax(high_t_input / bl_t, dim=-1)
+                        bl_loss += self.criterion(bl_t_scores, high_gt)
                         self.writer.add_scalars("sta_t/high_t", {"t_mean": t.mean(),
                                                                  "mean+std": t.mean() + t.std(),
                                                                  "mean-std": t.mean() - t.std()}, self.step)
@@ -353,21 +361,32 @@ class NMTLossCompute(LossComputeBase):
                 if self.low_t_generator is not None:
                     with torch.enable_grad():
                         low_t_input = low_logtis.clone().detach()
-                        logits_t = self.low_t_generator(low_t_input)
+                        logits_t = self.low_t_generator(low_output.clone().detach())
                         t = self.t_gen_func(logits_t)
-                        # temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze() - 1)
-                        # t = t / 10
+                        temp_loss_t += self.criterion(logits_t.log_softmax(dim=-1), t.long().squeeze(1))
+                        t = (t + 1) / 10
                         t_scores = low_t_input / t
                         t_scores = torch.log_softmax(t_scores, dim=-1)
                         loss_dict["t_loss"] += self.criterion(t_scores, low_gt)
+                        bl_t = (logits_t.max(1)[1] + 1).float().unsqueeze(-1) / 10
+                        bl_t_scores = torch.log_softmax(low_t_input / bl_t, dim=-1)
+                        bl_loss += self.criterion(bl_t_scores, low_gt)
                         self.writer.add_scalars("sta_t/low_t", {"t_mean": t.mean(),
                                                                 "mean+std": t.mean() + t.std(),
                                                                 "mean-std": t.mean() - t.std()}, self.step)
-                # if self.low_t_generator is not None or self.t_generator is not None:
-                #     with torch.enable_grad():
-                #         loss_dict["t_loss"] = loss_dict["t_loss"] - loss_dict.get("loss").item()
+                if self.low_t_generator is not None or self.t_generator is not None:
+                    with torch.enable_grad():
+                        # reward = (loss_dict.get("loss").item() - loss_dict["t_loss"].item()) / normalization
+                        # reward = (loss_dict["loss"].item() - loss_dict["t_loss"].item()) / max(
+                        #     loss_dict["t_loss"], loss_dict["loss"])
+                        reward = (bl_loss.item() - loss_dict["t_loss"].item()) / max(
+                            loss_dict["t_loss"].item(), bl_loss.item())
+
+                        self.writer.add_scalars("sta_t/loss_t", {"loss_t": temp_loss_t.div(output.shape[1]),
+                                                                 "reward": reward},
+                                                self.step)
+                        temp_loss_t = temp_loss_t * reward
                 # loss_dict["t_loss"].div(float(normalization)).backward()
-                self.writer.add_scalars("sta_t/loss_t", {"loss_t": temp_loss_t.div(output.shape[1])}, self.step)
 
             if self.sta:
                 self._multi_sta(high_scores, low_scores, high_gt, low_gt)
@@ -399,16 +418,23 @@ class NMTLossCompute(LossComputeBase):
         # return sum(list(loss_dict.values())),  stats
         # return loss_dict["loss"] + loss_dict["tag_loss"], stats
         # TODO(yida) temp rl
-        return loss_dict["t_loss"], stats
+        return temp_loss_t, stats
 
     def _compute_coverage_loss(self, std_attn, coverage_attn):
         covloss = torch.min(std_attn, coverage_attn).sum()
         covloss *= self.lambda_coverage
         return covloss
 
-    def t_gen_func(self, logits):
-        return logits * 2 + 1e-8
-        probs = (logits * 1).softmax(dim=-1)
+    def t_gen_func(self, logits, step_all=3000):
+        if not self.train:
+            return logits.log_softmax(dim=-1).max(1)[1].float().unsqueeze(-1)
+        if random.random() < (step_all - self.step) / step_all:
+            return torch.tensor([random.randint(0, 19) for i in range(logits.shape[0])]).float().unsqueeze(-1).to(
+                self.device)
+        dist = torch.distributions.Multinomial(logits=logits.log_softmax(dim=-1), total_count=1)
+        return torch.argmax(dist.sample(), dim=1, keepdim=True).float()
+        # return logits * 2 + 1e-4
+        probs = (logits * 1e2).softmax(dim=-1)
         index = torch.arange(1, probs.shape[-1] + 1, dtype=torch.float, device=self.device).unsqueeze(-1)
         return torch.mm(probs, index)
 
