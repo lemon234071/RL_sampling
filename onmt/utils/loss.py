@@ -430,10 +430,10 @@ class NMTLossCompute(LossComputeBase):
         #         self.device)
         # dist = torch.distributions.Multinomial(logits=logits.log_softmax(dim=-1), total_count=1)
         # return torch.argmax(dist.sample(), dim=1, keepdim=True).float()
-        return logits * 2 + 1e-4
-        probs = (logits * 1e2).softmax(dim=-1)
+        # return logits * 2 + 1e-4
+        probs = (logits * 1).softmax(dim=-1)
         index = torch.arange(1, probs.shape[-1] + 1, dtype=torch.float, device=self.device).unsqueeze(-1)
-        return torch.mm(probs, index)
+        return torch.mm(probs, index) / 10
 
     def _sta(self, scores, gtruth, tag_scores):
         # probs
