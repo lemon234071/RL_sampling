@@ -224,7 +224,7 @@ def preprocess_opts(parser):
               help="Path to the validation source data")
     group.add('--valid_tgt', '-valid_tgt',
               help="Path to the validation target data")
-    # TODO(yida)
+    # TODO(yida) preprocess
     group.add('--train_tag_src', '-train_tag_src', required=True,
               help="Path to the training target data")
     group.add('--valid_tag_src', '-valid_tag_src', required=True,
@@ -765,6 +765,20 @@ def translate_opts(parser):
               help=".")
     group.add('--rl_samples', '-rl_samples', default=2, type=int,
               help="total number of rl samples.")
+    group.add('--epochs', '-epochs', default=1, type=int,
+              help="total number of rl samples.")
+    group.add('--report_every', '-report_every', default=50, type=int,
+              help="total number of rl samples.")
+    group.add('--valid_steps', '-valid_steps', default=400, type=int,
+              help="total number of rl samples.")
+    group.add('--save_checkpoint_steps', '-save_checkpoint_steps', default=400, type=int,
+              help="total number of rl samples.")
+    # group.add('--valid_batch_size', '-valid_batch_size', type=int, default=32,
+    #           help='Maximum batch size for validation')
+    group.add('--train_steps', '-train_steps', type=int, default=100000,
+              help='Number of training steps')
+    group.add('--random_steps', '-random_steps', default=1000, type=int,
+              help="total number of rl samples.")
 
     group.add('--data', '-data', required=False,
               help='Path prefix to the ".train.pt" and '
@@ -827,12 +841,6 @@ def translate_opts(parser):
                    "Recommended for Transformer.")
     group.add('--accum_steps', '-accum_steps', type=int, nargs='+',
               default=[0], help="Steps at which accum_count values change")
-    group.add('--valid_steps', '-valid_steps', type=int, default=10000,
-              help='Perfom validation every X steps')
-    group.add('--valid_batch_size', '-valid_batch_size', type=int, default=32,
-              help='Maximum batch size for validation')
-    group.add('--train_steps', '-train_steps', type=int, default=100000,
-              help='Number of training steps')
     group.add('--optim', '-optim', default='sgd',
               choices=['sgd', 'adagrad', 'adadelta', 'adam',
                        'sparseadam', 'adafactor', 'fusedadam'],

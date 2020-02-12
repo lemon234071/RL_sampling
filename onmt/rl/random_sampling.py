@@ -61,19 +61,18 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, pos_logits, learned_t, mask=True):
-    # logits_backup = logits.clone()
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
-    high = topk_pos_ids.eq(4)
-    # num = high.float().sum() / topk_pos_ids.shape[0]
-    # print(num.item())
-    numerator = high.float() * 0.1 + (~high).float() * learned_t
-    logits /= numerator
+def freq_guide(logits, tag_logits, learned_t, mask=False):
+    topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
+    high = topk_tag_ids.eq(4)
+    low = topk_tag_ids.eq(5)
+    # numerator = high.float() * 0.1 + (~high).float() * learned_t
+    # logits /= numerator
     if mask:
-        high_mask = high.view(-1)
-        index = int(0.001 * (logits.shape[-1] - 4))
-        logits[high_mask, 4 + index:] = -10000
-        logits[~high_mask, 4:4 + index] = -10000
+        high_mask = high.squeeze()
+        low_mask = low.squeeze()
+        index = int(0.003 * (logits.shape[-1] - 4)) + 4
+        logits[high_mask, index:] = -10000
+        logits[low_mask, : index] = -10000
         # if False:
         #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
@@ -275,7 +274,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 pos_gen, vocab_pos, learned_t, sample_method):
+                 tag_gen, vocab_pos, learned_t, sample_method, tag_src):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -298,9 +297,10 @@ class RandomSampling(DecodeStrategy):
             dtype=torch.long, device=device)
         # self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         # self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
-        self.pos_gen = pos_gen
+        self.tag_gen = tag_gen
         self.learned_t = learned_t
         self.sample_method = sample_method
+        self.tag_alive_src = tag_src
 
     # yida translate
     def advance(self, log_probs, attn, pos_log_probs, sta):
@@ -322,7 +322,7 @@ class RandomSampling(DecodeStrategy):
         self.ensure_min_length(pos_log_probs)
         self.block_ngram_repeats(pos_log_probs)
         # TODO
-        if self.pos_gen:
+        if self.tag_gen:
             _, topk_pos_ids = pos_log_probs.topk(1, dim=-1)
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
@@ -350,7 +350,7 @@ class RandomSampling(DecodeStrategy):
             self.predictions[b_orig].append(self.alive_seq[b, 1:])
             # yida translate
             # self.entropy[b_orig].append(self.H_alive_seq[b, 1:])
-            if self.pos_gen:
+            if self.tag_gen:
                 self.pos_predictions[b_orig].append(self.pos_alive_seq[b, 1:])
                 # self.pos_entropy[b_orig].append(self.pos_H_alive_seq[b, 1:])
 
@@ -365,9 +365,11 @@ class RandomSampling(DecodeStrategy):
         # yida translate
         self.learned_t = self.learned_t[is_alive]
         # self.H_alive_seq = self.H_alive_seq[is_alive]
-        if self.pos_gen:
+        if self.tag_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
             # self.pos_H_alive_seq = self.pos_H_alive_seq[is_alive]
+        if self.tag_alive_src is not None:
+            self.tag_alive_src = self.tag_alive_src[:, is_alive]
 
         if self.alive_attn is not None:
             self.alive_attn = self.alive_attn[:, is_alive]

@@ -5,6 +5,7 @@ from __future__ import print_function
 import codecs
 import math
 import os
+import random
 import time
 from itertools import count
 
@@ -145,6 +146,7 @@ class Translator(object):
             report_every=5,
             valid_steps=30,
             save_checkpoint_steps=100,
+            random_steps=10000,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -224,6 +226,7 @@ class Translator(object):
         self.writer = SummaryWriter()
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
+        self.random_steps = random_steps
         self.rl_model.train()
         self.model.eval()
 
@@ -266,11 +269,6 @@ class Translator(object):
             fields,
             src_reader,
             tgt_reader,
-            # yida
-            samples_n=opt.rl_samples,
-            sample_method=opt.sample_method,
-            sta=opt.statistic,
-            #
             gpu=opt.gpu,
             n_best=opt.n_best,
             min_length=opt.min_length,
@@ -295,6 +293,16 @@ class Translator(object):
             out_file=out_file,
             report_score=report_score,
             logger=logger,
+            # yida
+            epochs=opt.epochs,
+            report_every=opt.report_every,
+            valid_steps=opt.valid_steps,
+            save_checkpoint_steps=opt.save_checkpoint_steps,
+            random_steps=opt.random_steps,
+            samples_n=opt.rl_samples,
+            sample_method=opt.sample_method,
+            sta=opt.statistic,
+            #
             seed=opt.seed)
 
     def _log(self, msg):
@@ -356,7 +364,7 @@ class Translator(object):
 
         start_time = time.time()
 
-        self.validate(test_iter, test_data, xlation_builder, pred_words_total, infer=True)
+        self.validate(test_iter, test_data, xlation_builder, infer=True)
         end_time = time.time()
 
         if self.report_time:
@@ -371,9 +379,11 @@ class Translator(object):
             self,
             train_src,
             train_tgt,
+            train_tag_src,
             train_tag_tgt,
             valid_src,
             valid_tgt,
+            valid_tag_src,
             valid_tag_tgt,
             src_dir=None,
             batch_size=None,
@@ -402,11 +412,11 @@ class Translator(object):
         train_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
-                     if train_tag_tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt), ("tag_tgt", train_tag_tgt)]
-            if train_tag_tgt else [("src", train_src), ("tgt", train_tgt)],
-            dirs=[src_dir, None, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
+            data=[("src", train_src), ("tgt", train_tgt), ("pos_src", train_tag_src), ("pos_tgt", train_tag_tgt)]
+            if train_tag_tgt is not None else [("src", train_src), ("tgt", train_tgt)],
+            dirs=[src_dir, None, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -425,11 +435,11 @@ class Translator(object):
         valid_data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
-                     if train_tag_tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_tgt", valid_tag_tgt)]
-            if train_tag_tgt else [("src", valid_src), ("tgt", valid_tgt)],
-            dirs=[src_dir, None, None],
+            readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
+                     if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
+            data=[("src", valid_src), ("tgt", valid_tgt), ("pos_src", valid_tag_src), ("pos_tgt", valid_tag_tgt)]
+            if train_tag_tgt is not None else [("src", valid_src), ("tgt", valid_tgt)],
+            dirs=[src_dir, None, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -469,7 +479,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0:  # or step == 1:
+                if step % self.valid_steps == 0 or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -521,16 +531,18 @@ class Translator(object):
         self.optim.step()
 
     def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
-        k = self.samples_n
-        dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-        k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(k)]
+        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+            k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
+                                       device=self._dev) for i in range(self.samples_n)]
+        else:
+            dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
+            k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
         k_learned_t = self.tid2t(k_topk_ids)
-        t_mode = k_learned_t.squeeze().mode(-1)[0]
 
         k_topk_ids = torch.stack(k_topk_ids, -1)
         # k_topk_ids = torch.cat(k_topk_ids, 0)
 
-        k_logits_t = torch.stack([logits_t] * k, -1)
+        k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
         # k_logits_t = torch.cat([logits_t] * k, 0)
         loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)  # .div()
 
@@ -539,7 +551,7 @@ class Translator(object):
         k_reward_qs = []
         k_bleu = []
         k_dist = []
-        for i in range(k):
+        for i in range(self.samples_n):
             with torch.no_grad():
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
@@ -567,39 +579,42 @@ class Translator(object):
         # )
         # baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
 
-        topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-        bl_t = self.tid2t([topk_ids])
-        with torch.no_grad():
-            self.model.decoder.init_state(src, memory_bank, enc_states)
-        bl_batch_data = self.translate_batch(
-            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-            bl_t[0], sample_method=self.samples_method
-        )
-        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-
-        reward_bl_dict = cal_reward(baseline, golden_truth)
-        if self.samples_method == "topk":
-            reward_bl = reward_bl_dict["bleu"]
-        else:
-            reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
+        # topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+        # bl_t = self.tid2t([topk_ids])
+        # with torch.no_grad():
+        #     self.model.decoder.init_state(src, memory_bank, enc_states)
+        # bl_batch_data = self.translate_batch(
+        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+        #     bl_t[0], sample_method=self.samples_method
+        # )
+        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+        #
+        # reward_bl_dict = cal_reward(baseline, golden_truth)
+        # if self.samples_method == "topk":
+        #     reward_bl = reward_bl_dict["bleu"]
+        # else:
+        #     reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
         # reward_bl = reward_bl_dict["bleu"]
-        # reward_bl = reward_mean
-        reward = (torch.tensor(k_reward_qs).cuda() - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         bleu_mean = sum(k_bleu) / len(k_bleu)
         dist_mean = sum(k_dist) / len(k_dist)
 
+        reward_bl = reward_mean
+        reward = (torch.tensor(k_reward_qs).to(self._dev) - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
         loss = reward * loss_t
 
-        self.writer.add_scalars("train_k_loss", {"loss_mean": loss_t.mean().item()}, self.optim.training_step)
+        self.writer.add_scalars("train_t", {"t_mean": loss_t.mean(),
+                                            "mean+stc": k_learned_t.mean() + k_learned_t.std(),
+                                            "mean-stc": k_learned_t.mean() - k_learned_t.std()},
+                                self.optim.training_step)
+        self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
         self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
         self.writer.add_scalars("train_reward/bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
         self.writer.add_scalars("train_reward/dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/bleu_bl", {"bleu_bl": reward_bl_dict["bleu"]}, self.optim.training_step)
+        # self.writer.add_scalars("train_reward/reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
+        # self.writer.add_scalars("train_reward/bleu_bl", {"bleu_bl": reward_bl_dict["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
-        self.writer.add_scalars("train_t_mode", {"t_mode": t_mode.mean()}, self.optim.training_step)
         return loss
 
     def tid2t(self, t_ids):
@@ -638,7 +653,7 @@ class Translator(object):
                     golden += golden_truth
 
                     loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
-                    loss = loss_t.sum()
+                    loss = loss_t.mean()
                     loss_total += loss
 
                 # arg
@@ -659,19 +674,24 @@ class Translator(object):
         reward_qs_dict_arg = cal_reward(arg_prediction, golden)
         reward_qs_dict = cal_reward(all_predictions, golden)
         if self.samples_method == "freq":
-            reward = (reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100) - \
-                     (reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100)
+            reward = (reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100)
+            reward_arg = (reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100)
         else:
-            reward = reward_qs_dict["bleu"] - reward_qs_dict_arg["bleu"]
+            reward = reward_qs_dict["bleu"]
+            reward_arg = reward_qs_dict_arg["bleu"]
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
-        self.writer.add_scalars("valid_reward/reward", {"reward": reward}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward/reward",
+                                {"reward_sample": reward, "reward_arg": reward_arg},
+                                self.optim.training_step)
         self.writer.add_scalars("valid_reward/bleu",
                                 {"bleu": reward_qs_dict["bleu"],
                                  "bleu_arg": reward_qs_dict_arg["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/dist",
                                 {"dist": reward_qs_dict["dist"],
                                  "dist_arg": reward_qs_dict_arg["dist"]}, self.optim.training_step)
-        self.writer.add_scalars("valid_t_rate", {"valid_t_rate": sum(learned_t[0].gt(0.5)).item()},
+        self.writer.add_scalars("valid_t", {"mean": learned_t[0].mean(),
+                                            "mean+std": learned_t[0].mean() + learned_t[0].std(),
+                                            "mean-std": learned_t[0].mean() - learned_t[0].std()},
                                 self.optim.training_step)
         # print("valid over", self.optim.training_step)
         self.rl_model.train()
@@ -753,27 +773,33 @@ class Translator(object):
         else:
             mb_device = memory_bank.device
 
+        tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
             batch_size, mb_device, min_length, self.block_ngram_repeat,
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, vocab_pos, learned_t, sample_method)
+            self.model.tag_generator is not None, vocab_pos, learned_t, sample_method, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
-            # yida translate
-            pos_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
+            tag_decoder_src = random_sampler.tag_alive_src \
+                if self.model.low_generator is not None else None
+            tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
                 if self.model.tag_generator is not None else None
+            t_in = random_sampler.learned_t
 
             # yida translate
             log_probs, attn, pos_log_probs = self._decode_and_generate(
                 decoder_input,
-                # yida tranlate
-                pos_decoder_in,
                 memory_bank,
+                # yida tranlate
+                tag_decoder_src,
+                tag_decoder_in,
+                t_in,
                 batch,
                 src_vocabs,
                 memory_lengths=memory_lengths,
@@ -857,9 +883,10 @@ class Translator(object):
     def _decode_and_generate(
             self,
             decoder_in,
-            # yida translate
-            pos_decoder_in,
             memory_bank,
+            tag_src,
+            tag_decoder_in,
+            learned_t,
             batch,
             src_vocabs,
             memory_lengths,
@@ -876,9 +903,10 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        dec_out, dec_attn, rnn_out = self.model.decoder(
+        dec_out, dec_attn, rnn_outs = self.model.decoder(
             # yida translate
-            decoder_in, memory_bank, pos_decoder_in, memory_lengths=memory_lengths, step=step
+            decoder_in, memory_bank, self.model.tag_generator, tag_src, tag_decoder_in,
+            memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.
@@ -887,10 +915,41 @@ class Translator(object):
                 attn = dec_attn["std"]
             else:
                 attn = None
-            log_probs = self.model.generator(dec_out.squeeze(0))
-            # yida translate
-            pos_log_probs = self.model.tag_generator(
-                dec_out.squeeze(0)) if self.model.tag_generator is not None else None
+
+            tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
+            tag_log_probs = self.model.tag_generator(
+                tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
+            tag_argmax = tag_log_probs.max(1)[1]
+            if self.model.low_generator is not None:
+                high_indices = tag_argmax.eq(4)
+                low_indices = tag_argmax.eq(5)
+                high_out = dec_out.squeeze(0)[high_indices]
+                low_out = dec_out.squeeze(0)[low_indices]
+                assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
+                high_logits = self.model.generator(high_out)
+                # if self.model.t_generator is not None:
+                #     logits_t = self.model.t_generator(high_logits)
+                high_probs = torch.log_softmax(high_logits / learned_t[high_indices], dim=-1)
+                low_logits = self.model.low_generator(low_out)
+                # if self.model.low_t_generator is not None:
+                #     low_logits_t = self.model.low_t_generator(low_logits)
+                #
+                #     low_logits = low_logits / t
+
+                low_probs = torch.log_softmax(low_logits / learned_t[low_indices], dim=-1)
+                high_num = self.model.generator._modules["0"].out_features
+                low_num = self.model.low_generator._modules["0"].out_features
+                log_probs = torch.full([dec_out.squeeze(0).shape[0], high_num + low_num], -float('inf'),
+                                       dtype=torch.float, device=high_out.device)
+                log_probs[high_indices, :high_probs.shape[1]] = high_probs
+                log_probs[low_indices, high_probs.shape[1]:] = low_probs
+            else:
+                logits = self.model.generator(dec_out.squeeze(0))
+                log_probs = torch.log_softmax(logits, dim=-1)
+            # log_probs = self.model.generator(dec_out.squeeze(0))
+            # # yida translate
+            # pos_log_probs = self.model.tag_generator(
+            #     dec_out.squeeze(0)) if self.model.tag_generator is not None else None
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:
@@ -917,7 +976,7 @@ class Translator(object):
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         # yida translate
-        return log_probs, attn, pos_log_probs
+        return log_probs, attn, tag_log_probs
 
     def _translate_batch(
             self,

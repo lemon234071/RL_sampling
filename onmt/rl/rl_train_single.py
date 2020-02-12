@@ -112,12 +112,13 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
                 batch_type=opt.batch_type)
     else:
         valid_src_shards = split_corpus(opt.valid_src, opt.shard_size)
-        valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size)
+        valid_tgt_shards = split_corpus(opt.valid_tgt, opt.shard_size) \
+            if opt.tgt is not None else repeat(None)
 
         tag_src_shards = split_corpus(opt.tag_src, opt.shard_size) \
-            if opt.tag_tgt is not None else repeat(None)
+            if opt.tag_src is not None else repeat(None)
         valid_tag_src_shards = split_corpus(opt.valid_tag_src, opt.shard_size) \
-            if opt.valid_tag_tgt is not None else repeat(None)
+            if opt.valid_tag_src is not None else repeat(None)
         tag_tgt_shards = split_corpus(opt.tag_tgt, opt.shard_size) \
             if opt.tag_tgt is not None else repeat(None)
         valid_tag_tgt_shards = split_corpus(opt.valid_tag_tgt, opt.shard_size) \

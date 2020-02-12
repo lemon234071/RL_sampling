@@ -16,7 +16,7 @@ elif [ "$2" = "train" ]; then
 elif [ "$2" = "infer" ]; then
   python3 translate.py -gpu "$1" -model "$3" -sample_method "$4" -output result/"$DATA_DIR"_"$DATASET"_"$4".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-test.txt -max_length 30 -pos_src "$DATA_DIR"/"$DATASET"-src-test.txt
 elif [ "$2" = "rl_train" ]; then
-  python3 rl_train.py -sample_method "$4" -rl_samples 4 -learning_rate 0.001 -learning_rate_decay 0.8 -start_decay_steps 1000 -decay_steps 1000 -train_steps 5000 -valid_steps 500 -save_model rl_checkpoint/mlp_"$4"_"$5" -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/src-valid.txt -optim adam -gpu "$1" -model "$3" -output result/rl_"$DATA_DIR"_"$DATASET"_"$4"_"$5".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-train.txt -max_length 30
+  python3 rl_train.py -sample_method "$4" -rl_samples 4 -epochs 2 -report_every 50 -valid_steps 200 -save_checkpoint_steps 400 -warmup_steps 1000 -learning_rate 0.0001 -learning_rate_decay 0.75 -start_decay_steps 1000 -decay_steps 1000 -train_steps 5000 -save_model rl_checkpoint/mlp_"$4"_"$5" -data "$DATA_DIR"/"$DATASET" -tgt -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/src-valid.txt -tag_src -tag_tgt -valid_tag_src -valid_tag_tgt -optim adam -gpu "$1" -model "$3" -output result/rl_"$DATA_DIR"_"$DATASET"_"$4"_"$5".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-train.txt -max_length 30
 elif [ "$2" = "rl_infer" ]; then
   python3 rl_train.py -infer
 else

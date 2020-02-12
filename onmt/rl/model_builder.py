@@ -165,7 +165,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     input_size = len(fields["tgt"].base_field.vocab) if model_opt.rl_step else model_opt.enc_rnn_size
     model = nn.Sequential(
         nn.Linear(input_size, output_size),
-        Cast(torch.float32)
+        Cast(torch.float32),
+        gen_func
     )
 
     # Load the model states from checkpoint or initialize them.

@@ -13,7 +13,7 @@ def cal_reward(preds, golden):
     #     nltk_bleu.append(
     #         round(corpus_bleu(
     #             golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
-    return {"bleu": nltk_bleu[0], "dist": dist2}
+    return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
 
 
 def eval_distinct(hyps_resp):
