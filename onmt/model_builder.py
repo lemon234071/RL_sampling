@@ -215,7 +215,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # nn.ReLU(),
                 # nn.Dropout(),
                 nn.Linear(model_opt.dec_rnn_size,
-                          20),  # len(fields["tgt"].base_field.vocab)
+                          1),  # len(fields["tgt"].base_field.vocab)
+                nn.Sigmoid(),
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
 
@@ -233,7 +234,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # nn.ReLU(),
                 # nn.Dropout(),
                 nn.Linear(model_opt.dec_rnn_size,
-                          20),  # len(fields["tgt"].base_field.vocab)
+                          1),  # len(fields["tgt"].base_field.vocab)
+                nn.Sigmoid(),
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
         else:

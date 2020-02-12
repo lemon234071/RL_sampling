@@ -144,7 +144,7 @@ class Statistics(object):
                self.ppl(),
                self.xent(),
                # TODO(yida) loss
-               self.t_xent(),
+               self.t_ppl(),
                self.tag_ppl(),
                self.tag_xent(),
                learning_rate,
