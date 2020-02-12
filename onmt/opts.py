@@ -775,8 +775,6 @@ def translate_opts(parser):
               help="total number of rl samples.")
     # group.add('--valid_batch_size', '-valid_batch_size', type=int, default=32,
     #           help='Maximum batch size for validation')
-    group.add('--train_steps', '-train_steps', type=int, default=100000,
-              help='Number of training steps')
     group.add('--random_steps', '-random_steps', default=1000, type=int,
               help="total number of rl samples.")
 

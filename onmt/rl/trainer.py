@@ -479,7 +479,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -518,33 +518,49 @@ class Translator(object):
         # prepare input
         # input = enc_states.transpose(0, 1)
         # input = input.contiguous().view(input.size(0), -1)
-        input = enc_states[-1].squeeze()
-        logits_t = self.rl_model(input)
-        # logits_t = self.rl_model.generator(outputs)
+        inputs = enc_states[-1].squeeze()
+        logits_t = self.rl_model(inputs)
+        low_logits_t = self.rl_model.generator(inputs) if self.rl_model.generator is not None else None
 
         # compute loss
-        loss = self._compute_loss_k(logits_t, batch, data, xlation_builder,
+        loss = self._compute_loss_k(logits_t, low_logits_t, batch, data, xlation_builder,
                                     src, enc_states, memory_bank, src_lengths)
         # loss.backward()
         if loss is not None:
             self.optim.backward(loss)
         self.optim.step()
 
-    def _compute_loss_k(self, logits_t, batch, data, xlation_builder, src, enc_states, memory_bank, src_lengths):
+    def _compute_loss_k(self, logits_t, low_logits_t, batch, data, xlation_builder, src, enc_states, memory_bank,
+                        src_lengths):
+        low_k_topk_ids = None
         if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
+            if low_logits_t is not None:
+                low_k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
+                                               device=self._dev) for i in range(self.samples_n)]
         else:
             dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
             k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
-        k_learned_t = self.tid2t(k_topk_ids)
+            if low_logits_t is not None:
+                low_dist = torch.distributions.Multinomial(logits=low_logits_t, total_count=1)
+                low_k_topk_ids = [torch.argmax(low_dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
 
+        k_learned_t = self.tid2t(k_topk_ids)
         k_topk_ids = torch.stack(k_topk_ids, -1)
         # k_topk_ids = torch.cat(k_topk_ids, 0)
-
         k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
         # k_logits_t = torch.cat([logits_t] * k, 0)
-        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)  # .div()
+        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)
+
+        low_k_t = None
+        if low_k_topk_ids is not None:
+            low_k_t = self.tid2t(low_k_topk_ids)
+            low_k_topk_ids = torch.stack(low_k_topk_ids, -1)
+            # k_topk_ids = torch.cat(k_topk_ids, 0)
+            low_k_logits_t = torch.stack([low_logits_t] * self.samples_n, -1)
+            # k_logits_t = torch.cat([logits_t] * k, 0)
+            loss_t += self.criterion(low_k_logits_t, low_k_topk_ids.squeeze()).mean(0)
 
         # infer samples(slow or not
         attn_debug = False
@@ -556,7 +572,7 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                k_learned_t[i], sample_method=self.samples_method
+                k_learned_t[i], low_k_t[i], sample_method=self.samples_method
             )
 
             # translate, so slow
@@ -604,9 +620,13 @@ class Translator(object):
         reward = (torch.tensor(k_reward_qs).to(self._dev) - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
         loss = reward * loss_t
 
-        self.writer.add_scalars("train_t", {"t_mean": loss_t.mean(),
-                                            "mean+stc": k_learned_t.mean() + k_learned_t.std(),
-                                            "mean-stc": k_learned_t.mean() - k_learned_t.std()},
+        self.writer.add_scalars("train_t/t", {"t_mean": k_learned_t.mean(),
+                                              "mean+stc": k_learned_t.mean() + k_learned_t.std(),
+                                              "mean-stc": k_learned_t.mean() - k_learned_t.std()},
+                                self.optim.training_step)
+        self.writer.add_scalars("train_t/low_t", {"t_mean": low_k_t.mean(),
+                                                  "mean+stc": low_k_t.mean() + low_k_t.std(),
+                                                  "mean-stc": low_k_t.mean() - low_k_t.std()},
                                 self.optim.training_step)
         self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
         self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
@@ -636,17 +656,22 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
                 # input = enc_states.transpose(0, 1)
                 # input = input.contiguous().view(input.size(0), -1)
-                input = enc_states[-1].squeeze()
+                inputs = enc_states[-1].squeeze()
 
                 # F-prop through the model.
-                logits_t = self.rl_model(input)
+                logits_t = self.rl_model(inputs)
+                low_logits_t = self.rl_model.generator(inputs) if self.rl_model.generator is not None else None
                 if not (infer or self.sta):
                     dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
                     k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+                    if low_logits_t is not None:
+                        low_dist = torch.distributions.Multinomial(logits=low_logits_t, total_count=1)
+                        low_k_topk_ids = torch.argmax(low_dist.sample(), dim=1, keepdim=True)
+                        low_t = self.tid2t([low_k_topk_ids])
                     learned_t = self.tid2t([k_topk_ids])
                     batch_data = self.translate_batch(
                         batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                        learned_t[0], sample_method=self.samples_method
+                        learned_t[0], low_t[0], sample_method=self.samples_method
                     )
                     batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
                     all_predictions += batch_sents
@@ -659,10 +684,13 @@ class Translator(object):
                 # arg
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
                 learned_t_arg = self.tid2t([topk_ids])
+                if low_logits_t is not None:
+                    low_topk_scores, low_topk_ids = low_logits_t.topk(1, dim=-1)
+                    low_t_arg = self.tid2t([low_topk_ids])
                 self.model.decoder.init_state(src, memory_bank, enc_states)
                 batch_data_arg = self.translate_batch(
                     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                    learned_t_arg[0], sample_method=self.samples_method, sta=self.sta)
+                    learned_t_arg[0], low_t_arg[0], sample_method=self.samples_method, sta=self.sta)
                 # translate, so slow
                 if not self.sta:
                     batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
@@ -689,15 +717,28 @@ class Translator(object):
         self.writer.add_scalars("valid_reward/dist",
                                 {"dist": reward_qs_dict["dist"],
                                  "dist_arg": reward_qs_dict_arg["dist"]}, self.optim.training_step)
-        self.writer.add_scalars("valid_t/sample", {"mean": learned_t[0].mean(),
-                                                   "mean+std": learned_t[0].mean() + learned_t[0].std(),
-                                                   "mean-std": learned_t[0].mean() - learned_t[0].std()},
+        self.writer.add_scalars("valid_t/sample",
+                                {"mean": learned_t[0].mean(),
+                                 "mean+std": learned_t[0].mean() + learned_t[0].std(),
+                                 "mean-std": learned_t[0].mean() - learned_t[0].std()},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid_t/arg", {"mean": learned_t_arg[0].mean(),
-                                                "mean+std": learned_t_arg[0].mean() + learned_t_arg[0].std(),
-                                                "mean-std": learned_t_arg[0].mean() - learned_t_arg[0].std()},
+        self.writer.add_scalars("valid_t/low_sample",
+                                {"mean": low_t[0].mean(),
+                                 "mean+std": low_t[0].mean() + low_t[0].std(),
+                                 "mean-std": low_t[0].mean() - low_t[0].std()},
+                                self.optim.training_step)
+        self.writer.add_scalars("valid_t/arg",
+                                {"mean": learned_t_arg[0].mean(),
+                                 "mean+std": learned_t_arg[0].mean() + learned_t_arg[0].std(),
+                                 "mean-std": learned_t_arg[0].mean() - learned_t_arg[0].std()},
+                                self.optim.training_step)
+        self.writer.add_scalars("valid_t/low_arg",
+                                {"mean": low_t_arg[0].mean(),
+                                 "mean+std": low_t_arg[0].mean() + low_t_arg[0].std(),
+                                 "mean-std": low_t_arg[0].mean() - low_t_arg[0].std()},
                                 self.optim.training_step)
         print("valid_t:", learned_t_arg[0].mean(), "std:", learned_t_arg[0].std(), self.optim.training_step)
+        print("valid_low_t:", low_t_arg[0].mean(), "std:", low_t_arg[0].std(), self.optim.training_step)
         self.rl_model.train()
 
     def ids2sents(
@@ -737,7 +778,7 @@ class Translator(object):
             src_vocabs,
             max_length,
             # yida RL translate
-            memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
+            memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta, sample_method,
             #
             min_length=0,
             sampling_temp=1.0,
@@ -785,7 +826,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, vocab_pos, learned_t, sample_method, tag_src)
+            self.model.tag_generator is not None, vocab_pos, learned_t, low_t, sample_method, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -795,6 +836,7 @@ class Translator(object):
             tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
                 if self.model.tag_generator is not None else None
             t_in = random_sampler.learned_t
+            low_t_in = random_sampler.low_t
 
             # yida translate
             log_probs, attn, pos_log_probs = self._decode_and_generate(
@@ -804,6 +846,7 @@ class Translator(object):
                 tag_decoder_src,
                 tag_decoder_in,
                 t_in,
+                low_t_in,
                 batch,
                 src_vocabs,
                 memory_lengths=memory_lengths,
@@ -849,7 +892,7 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t, sta=False, sample_method="freq"):
+                        memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta=False, sample_method="freq"):
         """Translate a batch of sentences."""
         with torch.no_grad():
             return self._translate_random_sampling(
@@ -857,7 +900,7 @@ class Translator(object):
                 src_vocabs,
                 self.max_length,
                 # yida RL translate
-                memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
+                memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta, sample_method,
                 #
                 min_length=self.min_length,
                 sampling_temp=self.random_sampling_temp,
@@ -891,6 +934,7 @@ class Translator(object):
             tag_src,
             tag_decoder_in,
             learned_t,
+            low_t,
             batch,
             src_vocabs,
             memory_lengths,
@@ -930,23 +974,19 @@ class Translator(object):
                 high_out = dec_out.squeeze(0)[high_indices]
                 low_out = dec_out.squeeze(0)[low_indices]
                 assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
-                high_logits = self.model.generator(high_out)
-                # if self.model.t_generator is not None:
-                #     logits_t = self.model.t_generator(high_logits)
-                high_probs = torch.log_softmax(high_logits / learned_t[high_indices], dim=-1)
-                low_logits = self.model.low_generator(low_out)
-                # if self.model.low_t_generator is not None:
-                #     low_logits_t = self.model.low_t_generator(low_logits)
-                #
-                #     low_logits = low_logits / t
-
-                low_probs = torch.log_softmax(low_logits / learned_t[low_indices], dim=-1)
                 high_num = self.model.generator._modules["0"].out_features
                 low_num = self.model.low_generator._modules["0"].out_features
                 log_probs = torch.full([dec_out.squeeze(0).shape[0], high_num + low_num], -float('inf'),
                                        dtype=torch.float, device=high_out.device)
-                log_probs[high_indices, :high_probs.shape[1]] = high_probs
-                log_probs[low_indices, high_probs.shape[1]:] = low_probs
+                if high_out.shape[0] > 0:
+                    high_logits = self.model.generator(high_out)
+                    high_probs = torch.log_softmax(high_logits / learned_t[high_indices], dim=-1)
+                    log_probs[high_indices, :high_num] = high_probs
+                if low_out.shape[0] > 0:
+                    low_logits = self.model.low_generator(low_out)
+                    low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
+                    low_probs = torch.log_softmax(low_logits, dim=-1)
+                    log_probs[low_indices, high_num:] = low_probs
             else:
                 logits = self.model.generator(dec_out.squeeze(0))
                 log_probs = torch.log_softmax(logits, dim=-1)
