@@ -97,8 +97,8 @@ class ModelSaver(ModelSaverBase):
         model_state_dict = model.state_dict()
         model_state_dict = {k: v for k, v in model_state_dict.items()
                             if 'generator' not in k}
-        generator_state_dict = model.generator.state_dict()
-        low_generator_state_dict = model.low_generator.state_dict() if model.low_generator is not None else None
+        # generator_state_dict = model.generator.state_dict() if model.generator is not None else None
+        # low_generator_state_dict = model.low_generator.state_dict() if model.low_generator is not None else None
 
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
@@ -107,8 +107,8 @@ class ModelSaver(ModelSaverBase):
 
         checkpoint = {
             'model': model_state_dict,
-            'generator': generator_state_dict,
-            'low_generator': low_generator_state_dict,
+            # 'generator': generator_state_dict,
+            # 'low_generator': low_generator_state_dict,
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }

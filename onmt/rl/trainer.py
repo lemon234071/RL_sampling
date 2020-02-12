@@ -689,11 +689,15 @@ class Translator(object):
         self.writer.add_scalars("valid_reward/dist",
                                 {"dist": reward_qs_dict["dist"],
                                  "dist_arg": reward_qs_dict_arg["dist"]}, self.optim.training_step)
-        self.writer.add_scalars("valid_t", {"mean": learned_t[0].mean(),
-                                            "mean+std": learned_t[0].mean() + learned_t[0].std(),
-                                            "mean-std": learned_t[0].mean() - learned_t[0].std()},
+        self.writer.add_scalars("valid_t/sample", {"mean": learned_t[0].mean(),
+                                                   "mean+std": learned_t[0].mean() + learned_t[0].std(),
+                                                   "mean-std": learned_t[0].mean() - learned_t[0].std()},
                                 self.optim.training_step)
-        # print("valid over", self.optim.training_step)
+        self.writer.add_scalars("valid_t/arg", {"mean": learned_t_arg[0].mean(),
+                                                "mean+std": learned_t_arg[0].mean() + learned_t_arg[0].std(),
+                                                "mean-std": learned_t_arg[0].mean() - learned_t_arg[0].std()},
+                                self.optim.training_step)
+        print("valid_t:", learned_t_arg[0].mean(), "std:", learned_t_arg[0].std(), self.optim.training_step)
         self.rl_model.train()
 
     def ids2sents(
