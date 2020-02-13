@@ -744,6 +744,7 @@ class Translator(object):
                                     self.optim.training_step)
             print("valid_low_t:", low_t_arg[0].mean(), "std:", low_t_arg[0].std(), self.optim.training_step)
         print("valid_t:", learned_t_arg[0].mean(), "std:", learned_t_arg[0].std(), self.optim.training_step)
+        print("valid loss:", loss_total / step)
 
         self.rl_model.train()
 
