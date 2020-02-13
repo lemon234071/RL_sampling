@@ -479,7 +479,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0:  # or step == 1:
+                if step % self.valid_steps == 0 or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -572,7 +572,7 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                k_learned_t[i], low_k_t[i], sample_method=self.samples_method
+                k_learned_t[i], low_k_t[i] if low_k_t else None, sample_method=self.samples_method
             )
 
             # translate, so slow
@@ -624,10 +624,11 @@ class Translator(object):
                                               "mean+stc": k_learned_t.mean() + k_learned_t.std(),
                                               "mean-stc": k_learned_t.mean() - k_learned_t.std()},
                                 self.optim.training_step)
-        self.writer.add_scalars("train_t/low_t", {"t_mean": low_k_t.mean(),
-                                                  "mean+stc": low_k_t.mean() + low_k_t.std(),
-                                                  "mean-stc": low_k_t.mean() - low_k_t.std()},
-                                self.optim.training_step)
+        if low_k_t is not None:
+            self.writer.add_scalars("train_t/low_t", {"t_mean": low_k_t.mean(),
+                                                      "mean+stc": low_k_t.mean() + low_k_t.std(),
+                                                      "mean-stc": low_k_t.mean() - low_k_t.std()},
+                                    self.optim.training_step)
         self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
         self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
         self.writer.add_scalars("train_reward/bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
@@ -664,6 +665,7 @@ class Translator(object):
                 if not (infer or self.sta):
                     dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
                     k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
+                    low_t = None
                     if low_logits_t is not None:
                         low_dist = torch.distributions.Multinomial(logits=low_logits_t, total_count=1)
                         low_k_topk_ids = torch.argmax(low_dist.sample(), dim=1, keepdim=True)
@@ -671,7 +673,7 @@ class Translator(object):
                     learned_t = self.tid2t([k_topk_ids])
                     batch_data = self.translate_batch(
                         batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                        learned_t[0], low_t[0], sample_method=self.samples_method
+                        learned_t[0], low_t[0] if low_t else None, sample_method=self.samples_method
                     )
                     batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
                     all_predictions += batch_sents
@@ -690,7 +692,8 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
                 batch_data_arg = self.translate_batch(
                     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                    learned_t_arg[0], low_t_arg[0], sample_method=self.samples_method, sta=self.sta)
+                    learned_t_arg[0], low_t_arg[0] if low_t_arg is not None else None,
+                    sample_method=self.samples_method, sta=self.sta)
                 # translate, so slow
                 if not self.sta:
                     batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
@@ -722,23 +725,26 @@ class Translator(object):
                                  "mean+std": learned_t[0].mean() + learned_t[0].std(),
                                  "mean-std": learned_t[0].mean() - learned_t[0].std()},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid_t/low_sample",
-                                {"mean": low_t[0].mean(),
-                                 "mean+std": low_t[0].mean() + low_t[0].std(),
-                                 "mean-std": low_t[0].mean() - low_t[0].std()},
-                                self.optim.training_step)
+
         self.writer.add_scalars("valid_t/arg",
                                 {"mean": learned_t_arg[0].mean(),
                                  "mean+std": learned_t_arg[0].mean() + learned_t_arg[0].std(),
                                  "mean-std": learned_t_arg[0].mean() - learned_t_arg[0].std()},
                                 self.optim.training_step)
-        self.writer.add_scalars("valid_t/low_arg",
-                                {"mean": low_t_arg[0].mean(),
-                                 "mean+std": low_t_arg[0].mean() + low_t_arg[0].std(),
-                                 "mean-std": low_t_arg[0].mean() - low_t_arg[0].std()},
-                                self.optim.training_step)
+        if low_t is not None:
+            self.writer.add_scalars("valid_t/low_sample",
+                                    {"mean": low_t[0].mean(),
+                                     "mean+std": low_t[0].mean() + low_t[0].std(),
+                                     "mean-std": low_t[0].mean() - low_t[0].std()},
+                                    self.optim.training_step)
+            self.writer.add_scalars("valid_t/low_arg",
+                                    {"mean": low_t_arg[0].mean(),
+                                     "mean+std": low_t_arg[0].mean() + low_t_arg[0].std(),
+                                     "mean-std": low_t_arg[0].mean() - low_t_arg[0].std()},
+                                    self.optim.training_step)
+            print("valid_low_t:", low_t_arg[0].mean(), "std:", low_t_arg[0].std(), self.optim.training_step)
         print("valid_t:", learned_t_arg[0].mean(), "std:", learned_t_arg[0].std(), self.optim.training_step)
-        print("valid_low_t:", low_t_arg[0].mean(), "std:", low_t_arg[0].std(), self.optim.training_step)
+
         self.rl_model.train()
 
     def ids2sents(
@@ -984,7 +990,7 @@ class Translator(object):
                     log_probs[high_indices, :high_num] = high_probs
                 if low_out.shape[0] > 0:
                     low_logits = self.model.low_generator(low_out)
-                    low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
+                    # low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
                     low_probs = torch.log_softmax(low_logits, dim=-1)
                     log_probs[low_indices, high_num:] = low_probs
             else:
