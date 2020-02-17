@@ -57,11 +57,11 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         ArgumentParser.update_model_opts(model_opt)
         # ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
-        vocab = checkpoint['vocab']
+        # vocab = checkpoint['vocab']
     else:
         checkpoint = None
         model_opt = opt
-        vocab = torch.load(opt.data + '.vocab.pt')
+    vocab = torch.load(opt.data + '.vocab.pt')
 
     # check for code where vocab is saved instead of fields
     # (in the future this will be done in a smarter way)
@@ -104,10 +104,14 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     tgt_shards = split_corpus(opt.tgt, opt.shard_size) \
         if opt.tgt is not None else repeat(None)
     if opt.infer:
-        for i, src_shard in enumerate(src_shards):
+        tag_src_shards = split_corpus(opt.tag_src, opt.shard_size) \
+            if opt.tag_src is not None else repeat(None)
+        shard_pairs = zip(src_shards, tag_src_shards)
+        for i, (src_shard, tag_src_shard) in enumerate(shard_pairs):
             logger.info("Translating shard %d." % i)
             rltor.infer(
                 src_shard,
+                tag_src_shard,
                 batch_size=opt.batch_size,
                 batch_type=opt.batch_type)
     else:

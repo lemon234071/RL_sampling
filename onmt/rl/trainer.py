@@ -326,6 +326,7 @@ class Translator(object):
     def infer(
             self,
             test_src,
+            test_tag_src,
             batch_size=None,
             batch_type="sents"):
         if batch_size is None:
@@ -333,9 +334,11 @@ class Translator(object):
 
         test_data = inputters.Dataset(
             self.fields,
-            readers=([self.src_reader]),
-            data=[("src", test_src)],
-            dirs=[None],
+            readers=([self.src_reader, self.tgt_reader]
+                     if test_tag_src is not None else [self.src_reader]),
+            data=[("src", test_src), ("pos_src", test_tag_src)]
+            if test_tag_src is not None else [("src", test_src)],
+            dirs=[None, None],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -489,12 +492,10 @@ class Translator(object):
                              and step % self.save_checkpoint_steps == 0)):
                     self.model_saver.save(step, moving_average=None)
             print("!!!!!!!!!!!!!")
-            print("!!!!!!!!!!!!!")
             print("epoch:", epoch)
             print("!!!!!!!!!!!!!")
-            print("!!!!!!!!!!!!!")
         if self.model_saver is not None:
-            self.model_saver.save(step, moving_average=None)
+            self.model_saver.save(self.optim.training_step, moving_average=None)
 
         end_time = time.time()
 
@@ -617,7 +618,8 @@ class Translator(object):
         dist_mean = sum(k_dist) / len(k_dist)
 
         reward_bl = reward_mean
-        reward = (torch.tensor(k_reward_qs).to(self._dev) - reward_bl) / max([abs(x - reward_bl) for x in k_reward_qs])
+        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / \
+                 max([abs(x - reward_bl) for x in k_reward_qs])
         loss = reward * loss_t
 
         self.writer.add_scalars("train_t/t", {"t_mean": k_learned_t.mean(),
@@ -686,6 +688,7 @@ class Translator(object):
                 # arg
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
                 learned_t_arg = self.tid2t([topk_ids])
+                low_t_arg = None
                 if low_logits_t is not None:
                     low_topk_scores, low_topk_ids = low_logits_t.topk(1, dim=-1)
                     low_t_arg = self.tid2t([low_topk_ids])
@@ -991,12 +994,13 @@ class Translator(object):
                     log_probs[high_indices, :high_num] = high_probs
                 if low_out.shape[0] > 0:
                     low_logits = self.model.low_generator(low_out)
-                    # low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
+                    low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
                     low_probs = torch.log_softmax(low_logits, dim=-1)
                     log_probs[low_indices, high_num:] = low_probs
             else:
                 logits = self.model.generator(dec_out.squeeze(0))
-                log_probs = torch.log_softmax(logits, dim=-1)
+                # log_probs = torch.log_softmax(logits, dim=-1)
+                log_probs = logits
             # log_probs = self.model.generator(dec_out.squeeze(0))
             # # yida translate
             # pos_log_probs = self.model.tag_generator(

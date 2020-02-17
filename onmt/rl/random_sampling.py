@@ -61,12 +61,12 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, tag_logits, learned_t, mask=False):
+def freq_guide(logits, tag_logits, learned_t, mask=True):
     topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
     high = topk_tag_ids.eq(4)
     low = topk_tag_ids.eq(5)
-    # numerator = high.float() * 0.1 + (~high).float() * learned_t
-    # logits /= numerator
+    numerator = high.float() * 0.1 + (~high).float() * learned_t
+    logits /= numerator
     if mask:
         high_mask = high.squeeze()
         low_mask = low.squeeze()
