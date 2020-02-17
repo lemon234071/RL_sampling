@@ -200,7 +200,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         # TODO(yida) build model
         # TODO(yida) temp rl
-        model_opt.t_gen = True
+        # model_opt.t_gen = True
         if model_opt.tag_gen == "multi":
             high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
             generator = nn.Sequential(

@@ -19,7 +19,7 @@ import onmt.rl.beam
 from onmt.modules.copy_generator import collapse_copy_scores
 from onmt.rl.beam_search import BeamSearch
 # yida RL translate
-from onmt.rl.eval import cal_reward
+from onmt.rl.eval import cal_reward, cal_reward_tokens
 from onmt.rl.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 
@@ -534,7 +534,7 @@ class Translator(object):
     def _compute_loss_k(self, logits_t, low_logits_t, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
         low_k_topk_ids = None
-        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
             if low_logits_t is not None:
@@ -575,6 +575,8 @@ class Translator(object):
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
                 k_learned_t[i], low_k_t[i] if low_k_t else None, sample_method=self.samples_method
             )
+
+            # tokens_reward = self.tokens_reward(batch_data, batch)
 
             # translate, so slow
             batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
@@ -636,6 +638,18 @@ class Translator(object):
         # return t_ids.float() + 0.001
         t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
+
+    def tokens_reward(self, batch_data, batch):
+        predictions = []
+        for instance in batch_data["predictions"]:
+            seq = instance[0].tolist()
+            if seq[-1] == 3:
+                seq = seq[:-1]
+            predictions.append([str(x) for x in seq[:-1]])
+        # predictions = [[str(x) for x in instance[0].tolist()] if for instance in batch_data["predictions"]]
+        mask = batch.tgt.T.ne(self._tgt_pad_idx)
+        gt_tokens = [[str(x) for x in batch.tgt.T[0, i][mask[0, i]][1:-1].tolist()] for i in range(batch.batch_size)]
+        return cal_reward_tokens(predictions, gt_tokens)
 
     def validate(self, valid_iter, data, xlation_builder, infer=False, attn_debug=False):
         loss_total = 0.0
@@ -991,8 +1005,7 @@ class Translator(object):
                     log_probs[low_indices, high_num:] = low_probs
             else:
                 logits = self.model.generator(dec_out.squeeze(0))
-                # log_probs = torch.log_softmax(logits, dim=-1)
-                log_probs = logits
+                log_probs = torch.log_softmax(logits, dim=-1)
             # log_probs = self.model.generator(dec_out.squeeze(0))
             # # yida translate
             # pos_log_probs = self.model.tag_generator(
