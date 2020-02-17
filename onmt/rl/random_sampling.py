@@ -65,7 +65,7 @@ def freq_guide(logits, tag_logits, learned_t, mask=True):
     topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
     high = topk_tag_ids.eq(4)
     low = topk_tag_ids.eq(5)
-    numerator = high.float() * 0.1 + (~high).float() * learned_t
+    numerator = high.float() * learned_t + (~high).float() * 1.1
     logits /= numerator
     if mask:
         high_mask = high.squeeze()

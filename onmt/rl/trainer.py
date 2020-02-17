@@ -589,35 +589,27 @@ class Translator(object):
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
-        # with torch.no_grad():
-        #     self.model.decoder.init_state(src, memory_bank, enc_states)
-        # batch_bl_data = self.translate_batch(
-        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src, k_learned_t[0], bl=True
-        # )
-        # baseline, _ = self.ids2sents(batch_bl_data, xlation_builder)
+        topk_scores, topk_ids = logits_t.topk(1, dim=-1)
+        bl_t = self.tid2t([topk_ids])
+        with torch.no_grad():
+            self.model.decoder.init_state(src, memory_bank, enc_states)
+        bl_batch_data = self.translate_batch(
+            batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
+            bl_t[0], None, sample_method=self.samples_method
+        )
+        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
 
-        # topk_scores, topk_ids = logits_t.topk(1, dim=-1)
-        # bl_t = self.tid2t([topk_ids])
-        # with torch.no_grad():
-        #     self.model.decoder.init_state(src, memory_bank, enc_states)
-        # bl_batch_data = self.translate_batch(
-        #     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-        #     bl_t[0], sample_method=self.samples_method
-        # )
-        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-        #
-        # reward_bl_dict = cal_reward(baseline, golden_truth)
-        # if self.samples_method == "topk":
-        #     reward_bl = reward_bl_dict["bleu"]
-        # else:
-        #     reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
-        # reward_bl = reward_bl_dict["bleu"]
+        reward_bl_dict = cal_reward(baseline, golden_truth)
+        if self.samples_method == "topk":
+            reward_bl = reward_bl_dict["bleu"]
+        else:
+            reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         bleu_mean = sum(k_bleu) / len(k_bleu)
         dist_mean = sum(k_dist) / len(k_dist)
 
-        reward_bl = reward_mean
+        # reward_bl = reward_mean
         reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / \
                  max([abs(x - reward_bl) for x in k_reward_qs])
         loss = reward * loss_t
@@ -682,7 +674,7 @@ class Translator(object):
                     golden += golden_truth
 
                     loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
-                    loss = loss_t.mean()
+                    loss = loss_t.sum()
                     loss_total += loss
 
                 # arg
