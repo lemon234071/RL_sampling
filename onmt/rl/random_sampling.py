@@ -62,17 +62,17 @@ def pos_guide(logits, pos_logits, cross=True):
 
 
 def freq_guide(logits, tag_logits, learned_t, mask=True):
-    topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
-    high = topk_tag_ids.eq(4)
-    low = topk_tag_ids.eq(5)
-    numerator = high.float() * learned_t + (~high).float() * 1.1
-    logits /= numerator
-    if mask:
-        high_mask = high.squeeze()
-        low_mask = low.squeeze()
-        index = int(0.003 * (logits.shape[-1] - 4)) + 4
-        logits[high_mask, index:] = -10000
-        logits[low_mask, : index] = -10000
+    # topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
+    # high = topk_tag_ids.eq(4)
+    # low = topk_tag_ids.eq(5)
+    # numerator = high.float() * learned_t + (~high).float() * 1.1
+    # logits /= numerator
+    # if mask:
+    #     high_mask = high.squeeze()
+    #     low_mask = low.squeeze()
+    #     index = int(0.003 * (logits.shape[-1] - 4)) + 4
+    #     logits[high_mask, index:] = -10000
+    #     logits[low_mask, : index] = -10000
         # if False:
         #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
         #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))

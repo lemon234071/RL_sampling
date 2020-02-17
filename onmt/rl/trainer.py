@@ -482,7 +482,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -534,7 +534,7 @@ class Translator(object):
     def _compute_loss_k(self, logits_t, low_logits_t, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
         low_k_topk_ids = None
-        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
             if low_logits_t is not None:
@@ -573,7 +573,7 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                k_learned_t[i], low_k_t[i] if low_k_t else None, sample_method=self.samples_method
+                k_learned_t[i], low_k_t[i] if low_k_t is not None else None, sample_method=self.samples_method
             )
 
             # tokens_reward = self.tokens_reward(batch_data, batch)
@@ -681,7 +681,7 @@ class Translator(object):
                     learned_t = self.tid2t([k_topk_ids])
                     batch_data = self.translate_batch(
                         batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                        learned_t[0], low_t[0] if low_t else None, sample_method=self.samples_method
+                        learned_t[0], low_t[0] if low_t is not None else None, sample_method=self.samples_method
                     )
                     batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
                     all_predictions += batch_sents

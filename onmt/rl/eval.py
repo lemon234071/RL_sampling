@@ -15,7 +15,6 @@ def cal_reward(preds, golden):
     #             golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
     return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
 
-
 def cal_reward_tokens(infer, golden):
     golden = [[x] for x in golden]
     nltk_bleu = []
@@ -44,8 +43,8 @@ def eval_distinct(hyps_resp):
         print("ERROR, eval_distinct takes in a list of <class 'list'>, get a list of {} instead".format(
             type(hyps_resp[0])))
         return
-    if isinstance(hyps_resp[0][0], str):
-        hyps_resp = [(' '.join(i)).split() for i in hyps_resp]
+
+    hyps_resp = [(' '.join(i)).split() for i in hyps_resp]
     num_tokens = sum([len(i) for i in hyps_resp])
     dist1 = count_ngram(hyps_resp, 1) / float(num_tokens)
     dist2 = count_ngram(hyps_resp, 2) / float(num_tokens)

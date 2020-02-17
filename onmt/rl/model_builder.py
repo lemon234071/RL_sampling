@@ -183,7 +183,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         gen_func
     ))
 
-    low_gen = False
+    low_gen = True
     generator = nn.Sequential(
         nn.Linear(input_size, output_size),
         Cast(torch.float32),
