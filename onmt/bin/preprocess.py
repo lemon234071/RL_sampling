@@ -139,16 +139,16 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
         tgts = opt.train_tgt
         ids = opt.train_ids
         # TODO(yida) prerocess
-        pos_srcs = opt.train_pos_src
-        pos_tgts = opt.train_pos_tgt
+        pos_srcs = opt.train_tag_src
+        pos_tgts = opt.train_tag_tgt
     elif corpus_type == 'valid':
         counters = None
         srcs = [opt.valid_src]
         tgts = [opt.valid_tgt]
         ids = [None]
         # TODO(yida) prerocess
-        pos_srcs = opt.valid_pos_src
-        pos_tgts = opt.valid_pos_tgt
+        pos_srcs = opt.valid_tag_src
+        pos_tgts = opt.valid_tag_tgt
 
     src_vocab, tgt_vocab, existing_fields = maybe_load_vocab(
         corpus_type, counters, opt)

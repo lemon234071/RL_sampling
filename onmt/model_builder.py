@@ -200,7 +200,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         # TODO(yida) build model
         # TODO(yida) temp rl
-        # model_opt.t_gen = True
+        model_opt.t_gen = True
         if model_opt.tag_gen == "multi":
             high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
             generator = nn.Sequential(
@@ -209,13 +209,14 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # gen_func
             )
             t_generator = nn.Sequential(
-                # nn.Linear(high_num,
-                #           high_num),
-                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
-                # nn.ReLU(),
-                # nn.Dropout(),
+                nn.Linear(model_opt.dec_rnn_size,
+                          model_opt.dec_rnn_size),
+                # nn.BatchNorm1d(model_opt.enc_rnn_size),
+                nn.ReLU(),
+                nn.Dropout(),
                 nn.Linear(model_opt.dec_rnn_size,
                           20),  # len(fields["tgt"].base_field.vocab)
+                # nn.Sigmoid(),
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
 
@@ -227,13 +228,14 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 # gen_func
             )
             low_t_generator = nn.Sequential(
-                # nn.Linear(low_num,
-                #           low_num),
-                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
-                # nn.ReLU(),
-                # nn.Dropout(),
+                nn.Linear(model_opt.dec_rnn_size,
+                          model_opt.dec_rnn_size),
+                # nn.BatchNorm1d(model_opt.enc_rnn_size),
+                nn.ReLU(),
+                nn.Dropout(),
                 nn.Linear(model_opt.dec_rnn_size,
                           20),  # len(fields["tgt"].base_field.vocab)
+                # nn.Sigmoid(),
                 Cast(torch.float32)
             ) if model_opt.t_gen else None
         else:

@@ -534,7 +534,7 @@ class Translator(object):
     def _compute_loss_k(self, logits_t, low_logits_t, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
         low_k_topk_ids = None
-        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
             if low_logits_t is not None:
