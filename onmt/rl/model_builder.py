@@ -185,6 +185,12 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     low_gen = True
     generator = nn.Sequential(
+        nn.Linear(input_size,
+                  input_size),
+        Cast(torch.float32),
+        # nn.BatchNorm1d(model_opt.enc_rnn_size),
+        nn.ReLU(),
+        nn.Dropout(),
         nn.Linear(input_size, output_size),
         Cast(torch.float32),
         gen_func
