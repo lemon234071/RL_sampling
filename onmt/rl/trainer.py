@@ -575,22 +575,19 @@ class Translator(object):
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
                 k_learned_t[i], low_k_t[i] if low_k_t is not None else None, sample_method=self.samples_method
             )
-
             # tokens_reward = self.tokens_reward(batch_data, batch)
-
             # translate, so slow
             batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
-
             # cal rewards
             reward_dict = cal_reward(batch_sents, golden_truth)
             if self.samples_method == "topk":
                 k_reward_qs.append(reward_dict["bleu"])
             else:
-                k_reward_qs.append(reward_dict["bleu"] + reward_dict["dist"] / 100)
-            #
+                k_reward_qs.append(reward_dict["bleu"])  # + reward_dict["dist"] / 100)
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
+        # arg
         topk_scores, topk_ids = logits_t.topk(1, dim=-1)
         bl_t = self.tid2t([topk_ids])
         with torch.no_grad():
@@ -600,35 +597,42 @@ class Translator(object):
             bl_t[0], None, sample_method=self.samples_method
         )
         baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-
-        reward_bl_dict = cal_reward(baseline, golden_truth)
+        metirc_argmax = cal_reward(baseline, golden_truth)
         if self.samples_method == "topk":
-            reward_bl = reward_bl_dict["bleu"]
+            reward_argmax = metirc_argmax["bleu"]
         else:
-            reward_bl = reward_bl_dict["bleu"] + reward_bl_dict["dist"] / 100
+            reward_argmax = metirc_argmax["bleu"]  # + reward_bl_dict["dist"] / 100
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         bleu_mean = sum(k_bleu) / len(k_bleu)
         dist_mean = sum(k_dist) / len(k_dist)
 
         # reward_bl = reward_mean
-        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / \
-                 max([abs(x - reward_bl) for x in k_reward_qs])
+        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_argmax) / max(
+            [abs(x - reward_argmax) for x in k_reward_qs])
         loss = reward * loss_t
 
-        self.writer.add_scalars("train_t/t", {"t_mean": k_learned_t.mean(),
-                                              "mean+stc": k_learned_t.mean() + k_learned_t.std(),
-                                              "mean-stc": k_learned_t.mean() - k_learned_t.std()},
-                                self.optim.training_step)
+        # sta
+        self.writer.add_scalars(
+            "train_t/t",
+            {"t_mean": k_learned_t.mean(),
+             "mean+stc": k_learned_t.mean() + k_learned_t.std(),
+             "mean-stc": k_learned_t.mean() - k_learned_t.std()},
+            self.optim.training_step)
         if low_k_t is not None:
-            self.writer.add_scalars("train_t/low_t", {"t_mean": low_k_t.mean(),
-                                                      "mean+stc": low_k_t.mean() + low_k_t.std(),
-                                                      "mean-stc": low_k_t.mean() - low_k_t.std()},
-                                    self.optim.training_step)
+            self.writer.add_scalars(
+                "train_t/low_t",
+                {"t_mean": low_k_t.mean(),
+                 "mean+stc": low_k_t.mean() + low_k_t.std(),
+                 "mean-stc": low_k_t.mean() - low_k_t.std()},
+                self.optim.training_step)
         self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/reward_mean", {"reward_mean": reward_mean}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/bleu_mean", {"bleu_mean": bleu_mean}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/dist_mean", {"dist_mean": dist_mean}, self.optim.training_step)
+        self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
+                                self.optim.training_step)
+        self.writer.add_scalars("train_reward/bleu", {"argmax": metirc_argmax["bleu"], "mean": bleu_mean},
+                                self.optim.training_step)
+        self.writer.add_scalars("train_reward/dist", {"argmax": metirc_argmax["dist"], "mean": dist_mean},
+                                self.optim.training_step)
         # self.writer.add_scalars("train_reward/reward_bl", {"reward_bl": reward_bl}, self.optim.training_step)
         # self.writer.add_scalars("train_reward/bleu_bl", {"bleu_bl": reward_bl_dict["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
@@ -688,8 +692,7 @@ class Translator(object):
                     golden += golden_truth
 
                     loss_t = self.criterion(logits_t, k_topk_ids.view(-1))
-                    loss = loss_t.sum()
-                    loss_total += loss
+                    loss_total += loss_t.mean()
 
                 # arg
                 topk_scores, topk_ids = logits_t.topk(1, dim=-1)
@@ -711,24 +714,23 @@ class Translator(object):
                 step += 1
         if infer:
             return arg_prediction
-        reward_qs_dict_arg = cal_reward(arg_prediction, golden)
-        reward_qs_dict = cal_reward(all_predictions, golden)
+        metirc_argmax = cal_reward(arg_prediction, golden)
+        metirc_sample = cal_reward(all_predictions, golden)
         if self.samples_method == "freq":
-            reward = (reward_qs_dict["bleu"] + reward_qs_dict["dist"] / 100)
-            reward_arg = (reward_qs_dict_arg["bleu"] + reward_qs_dict_arg["dist"] / 100)
+            reward = (metirc_sample["bleu"] + metirc_sample["dist"] / 100)
+            reward_arg = (metirc_argmax["bleu"] + metirc_argmax["dist"] / 100)
         else:
-            reward = reward_qs_dict["bleu"]
-            reward_arg = reward_qs_dict_arg["bleu"]
+            reward = metirc_sample["bleu"]
+            reward_arg = metirc_argmax["bleu"]
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/reward",
-                                {"reward_sample": reward, "reward_arg": reward_arg},
-                                self.optim.training_step)
+                                {"reward_sample": reward, "reward_arg": reward_arg}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/bleu",
-                                {"bleu": reward_qs_dict["bleu"],
-                                 "bleu_arg": reward_qs_dict_arg["bleu"]}, self.optim.training_step)
+                                {"bleu": metirc_sample["bleu"],
+                                 "bleu_arg": metirc_argmax["bleu"]}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/dist",
-                                {"dist": reward_qs_dict["dist"],
-                                 "dist_arg": reward_qs_dict_arg["dist"]}, self.optim.training_step)
+                                {"dist": metirc_sample["dist"],
+                                 "dist_arg": metirc_argmax["dist"]}, self.optim.training_step)
         self.writer.add_scalars("valid_t/sample",
                                 {"mean": learned_t[0].mean(),
                                  "mean+std": learned_t[0].mean() + learned_t[0].std(),
@@ -754,7 +756,6 @@ class Translator(object):
             print("valid_low_t:", low_t_arg[0].mean(), "std:", low_t_arg[0].std(), self.optim.training_step)
         print("valid_t:", learned_t_arg[0].mean(), "std:", learned_t_arg[0].std(), self.optim.training_step)
         print("valid loss:", loss_total / step)
-
         self.rl_model.train()
 
     def ids2sents(
