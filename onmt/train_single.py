@@ -90,8 +90,8 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     _check_save_model_path(opt)
 
     # Build optimizer.
-    # TODO(yida) temp rl
-    checkpoint = None
+    # # TODO(yida) temp rl
+    # checkpoint = None
     optim = Optimizer.from_opt(model, opt, checkpoint=checkpoint)
 
     # Build model saver

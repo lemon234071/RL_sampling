@@ -33,10 +33,10 @@ def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
             used to save the model
     """
 
-    tgt_field = dict(fields)["tgt"].base_field
-    train_loss = onmt.utils.loss.build_loss_compute(model, tgt_field, opt)
+    # tgt_field = dict(fields)["tgt"].base_field
+    train_loss = onmt.utils.loss.build_loss_compute(model, fields, opt)
     valid_loss = onmt.utils.loss.build_loss_compute(
-        model, tgt_field, opt, train=False)
+        model, fields, opt, train=False)
 
     trunc_size = opt.truncated_decoder  # Badly named...
     shard_size = opt.max_generator_batches if opt.model_dtype == 'fp32' else 0
@@ -311,7 +311,7 @@ class Trainer(object):
                                    else (batch.src, None)
                 tgt = batch.tgt
                 # TODO(yida) train
-                if self.model.tag_generator is not None:
+                if "tag" in self.model.generators:
                     pos_src, _ = batch.pos_src \
                         if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
                     pos_tgt = batch.pos_tgt
@@ -357,7 +357,7 @@ class Trainer(object):
 
             tgt_outer = batch.tgt
             # TODO(yida) train
-            if self.model.tag_generator is not None:
+            if "tag" in self.model.generators.keys():
                 pos_src, _ = batch.pos_src \
                     if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
                 pos_outer = batch.pos_tgt
@@ -372,31 +372,31 @@ class Trainer(object):
                 tgt = tgt_outer[j: j + trunc_size]
                 # TODO(yida)
                 pos_tgt = pos_outer[j: j + trunc_size] \
-                    if self.model.tag_generator is not None else None
+                    if "tag" in self.model.generators.keys() else None
 
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:
                     self.optim.zero_grad()
                 # TODO(yida) trainer
                 # TODO(yida) temp rl
-                with torch.no_grad():
-                    outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
-                    # bptt = True
+                # with torch.no_grad():
+                outputs, attns, rnn_outs = self.model(src, tgt, pos_src, pos_tgt, src_lengths, bptt=bptt)
+                bptt = True
 
                 # 3. Compute loss.
                 try:
                     # TODO(yida) temp rl
-                    with torch.no_grad():
-                        loss, batch_stats = self.train_loss(
-                            batch,
-                            outputs,
-                            attns,
-                            # TODO(yida) trainer
-                            rnn_outs,
-                            normalization=normalization,
-                            shard_size=self.shard_size,
-                            trunc_start=j,
-                            trunc_size=trunc_size)
+                    # with torch.no_grad():
+                    loss, batch_stats = self.train_loss(
+                        batch,
+                        outputs,
+                        attns,
+                        # TODO(yida) trainer
+                        rnn_outs,
+                        normalization=normalization,
+                        shard_size=self.shard_size,
+                        trunc_start=j,
+                        trunc_size=trunc_size)
 
                     if loss is not None:
                         self.optim.backward(loss)

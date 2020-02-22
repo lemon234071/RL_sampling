@@ -18,11 +18,10 @@ class Statistics(object):
     * elapsed time
     """
 
-    def __init__(self, loss=0, loss_tag_gen=0, loss_t=0, n_words=0, n_correct=0):
+    def __init__(self, loss=0, loss_tag_gen=0, n_words=0, n_correct=0):
         self.loss = loss
         # TODO(yida) loss
         self.loss_tag_gen = loss_tag_gen
-        self.loss_t = loss_t
 
         self.n_words = n_words
         self.n_correct = n_correct
@@ -86,7 +85,6 @@ class Statistics(object):
         self.loss += stat.loss
         # TODO(yida) loss
         self.loss_tag_gen += stat.loss_tag_gen
-        self.loss_t += stat.loss_t
         self.n_words += stat.n_words
         self.n_correct += stat.n_correct
 
@@ -118,6 +116,7 @@ class Statistics(object):
         return self.loss_t / self.n_words
 
     def t_ppl(self):
+        return 1
         return math.exp(min(self.loss_t / self.n_words, 100))
 
     def elapsed_time(self):

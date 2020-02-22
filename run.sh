@@ -1,15 +1,17 @@
 # DATA_DIR="data_freq0.001"
 DATA_DIR="data_reddit_small"
-DATASET="freq"
+DATASET="tri"
 
 if [ "$2" = "preprocess" ]; then
-  python3 preprocess.py -train_src "$DATA_DIR"/src-train.txt -train_tgt "$DATA_DIR"/tgt-train.txt -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/tgt-valid.txt -save_data "$DATA_DIR"/"$DATASET" -train_pos_src "$DATA_DIR"/"$DATASET"-src-train.txt -train_pos_tgt "$DATA_DIR"/"$DATASET"-tgt-train.txt -valid_pos_src "$DATA_DIR"/"$DATASET"-src-valid.txt -valid_pos_tgt "$DATA_DIR"/"$DATASET"-tgt-valid.txt -share_vocab -src_vocab "$DATA_DIR"/vocab.txt -tgt_vocab "$DATA_DIR"/vocab.txt
+  python3 preprocess.py -train_src "$DATA_DIR"/src-train.txt -train_tgt "$DATA_DIR"/tgt-train.txt -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/tgt-valid.txt -save_data "$DATA_DIR"/"$DATASET" -train_tag_src "$DATA_DIR"/"$DATASET"-src-train.txt -train_tag_tgt "$DATA_DIR"/"$DATASET"-tgt-train.txt -valid_tag_src "$DATA_DIR"/"$DATASET"-src-valid.txt -valid_tag_tgt "$DATA_DIR"/"$DATASET"-tgt-valid.txt -share_vocab -src_vocab "$DATA_DIR"/vocab.txt -tgt_vocab "$DATA_DIR"/vocab.txt
 elif [ "$2" = "train" ]; then
   if [ "$3" = "seq2seq" ]; then
     # CUDA_VISIBLE_DEVICES="$1" python3 train.py -data "$DATA_DIR"/"$DATASET" -save_model checkpoint/"$DATA_DIR"_seq2seq -log_file ./log_dir/"$DATA_DIR"_seq2seq.log -world_size 1 -gpu_ranks 0 -global_attention mlp -word_vec_size 256 -rnn_size 512 -optim adam -param_init_glorot -rnn_type GRU -start_decay_steps 10000 -learning_rate 0.001 -train_steps 50000 -batch_size 128 -max_generator_batches 128 -report_every 500 -valid_steps 1000 -save_checkpoint_steps 5000 -statistic
     CUDA_VISIBLE_DEVICES="$1" python3 train.py -data "$DATA_DIR"/"$DATASET" -save_model checkpoint/"$DATA_DIR"_seq2seq_"$4" -log_file ./log_dir/"$DATA_DIR"_seq2seq_"$4".log -world_size 1 -gpu_ranks 0 -global_attention mlp -word_vec_size 256 -rnn_size 512 -optim adam -param_init_glorot -rnn_type GRU -start_decay_steps 50000 -learning_rate 0.001 -train_steps 50000 -batch_size 128 -max_generator_batches 128 -report_every 500 -valid_steps 1000 -save_checkpoint_steps 5000 -statistic
   elif [ "$3" = "freq" ]; then
-    CUDA_VISIBLE_DEVICES="$1" python3 train.py -train_from checkpoint/data_reddit_small_freq_multi_mask_attn_step_50000.pt -t_gen -mask_attn -tag_gen "$4" -data "$DATA_DIR"/"$DATASET" -save_model checkpoint/"$DATA_DIR"_freq_"$4"_"$5" -log_file ./log_dir/"$DATA_DIR"_freq_"$4"_"$5".log -world_size 1 -gpu_ranks 0 -global_attention mlp -word_vec_size 256 -rnn_size 512 -optim adam -param_init_glorot -rnn_type GRU -start_decay_steps 10000 -learning_rate 0.001 -train_steps 50000 -batch_size 128 -max_generator_batches 128 -report_every 500 -pos_vec_size 128 -valid_steps 1000 -save_checkpoint_steps 5000 -statistic
+    CUDA_VISIBLE_DEVICES="$1" python3 train.py -t_gen -mask_attn -tag_gen "$4" -data "$DATA_DIR"/"$DATASET" -save_model checkpoint/"$DATA_DIR"_freq_"$4"_"$5" -log_file ./log_dir/"$DATA_DIR"_freq_"$4"_"$5".log -world_size 1 -gpu_ranks 0 -global_attention mlp -word_vec_size 256 -rnn_size 512 -optim adam -param_init_glorot -rnn_type GRU -start_decay_steps 10000 -learning_rate 0.001 -train_steps 50000 -batch_size 128 -max_generator_batches 128 -report_every 500 -pos_vec_size 128 -valid_steps 1000 -save_checkpoint_steps 5000 -statistic
+  elif [ "$3" = "tri" ]; then
+    CUDA_VISIBLE_DEVICES="$1" python3 train.py -generators stop:152,generator:13862,vn:35990,tag:0 -t_gen -mask_attn -tag_gen "$4" -data "$DATA_DIR"/"$DATASET" -save_model checkpoint/"$DATA_DIR"_freq_"$4"_"$5" -log_file ./log_dir/"$DATA_DIR"_freq_"$4"_"$5".log -world_size 1 -gpu_ranks 0 -global_attention mlp -word_vec_size 256 -rnn_size 512 -optim adam -param_init_glorot -rnn_type GRU -start_decay_steps 10000 -learning_rate 0.001 -train_steps 50000 -batch_size 128 -max_generator_batches 128 -report_every 500 -pos_vec_size 128 -valid_steps 1000 -save_checkpoint_steps 5000 -statistic
   else
     echo "Input arg 3 Is Error: $3."
   fi

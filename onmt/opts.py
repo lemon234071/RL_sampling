@@ -138,6 +138,8 @@ def model_opts(parser):
     group.add('--tag_gen', '-tag_gen', type=str, default=None,
               choices=[None, "parallel", "serial", "concat", "multi"],
               help="Type of tag_generator.")
+    group.add('--generators', '-generators', type=str, default="generator:0",
+              help="Generators.")
     group.add('--high_rate', '-high_rate', type=float, default=0.003,
               help="high words rate of the voacb.")
     group.add('--pos_enc', '-pos_enc', action="store_true",

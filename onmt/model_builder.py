@@ -199,67 +199,26 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             gen_func = nn.LogSoftmax(dim=-1)
 
         # TODO(yida) build model
-        # TODO(yida) temp rl
-        # model_opt.t_gen = True
-        if model_opt.tag_gen == "multi":
-            high_num = int(model_opt.high_rate * (len(fields["tgt"].base_field.vocab) - 4) + 4)
-            generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size, high_num),
+        generators = {}
+        for i, kv in enumerate(model_opt.generators.split(",")):
+            k, v = kv.split(":")
+            if v == "0":
+                v = len(fields["tgt"].base_field.vocab)
+            if k == "tag":
+                v = len(fields["pos_tgt"].base_field.vocab)
+            generators[k] = nn.Sequential(
+                nn.Linear(model_opt.dec_rnn_size, int(v)),
                 Cast(torch.float32)
                 # gen_func
             )
-            t_generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size,
-                          model_opt.dec_rnn_size),
-                # nn.BatchNorm1d(model_opt.enc_rnn_size),
-                nn.ReLU(),
-                nn.Dropout(),
-                nn.Linear(model_opt.dec_rnn_size,
-                          20),  # len(fields["tgt"].base_field.vocab)
-                # nn.Sigmoid(),
-                Cast(torch.float32)
-            ) if model_opt.t_gen else None
+        assert "generator" in generators.keys()
 
-            low_num = len(fields["tgt"].base_field.vocab) - high_num
-            low_generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size,
-                          low_num),
-                Cast(torch.float32)
-                # gen_func
-            )
-            low_t_generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size,
-                          model_opt.dec_rnn_size),
-                # nn.BatchNorm1d(model_opt.enc_rnn_size),
-                nn.ReLU(),
-                nn.Dropout(),
-                nn.Linear(model_opt.dec_rnn_size,
-                          20),  # len(fields["tgt"].base_field.vocab)
-                # nn.Sigmoid(),
-                Cast(torch.float32)
-            ) if model_opt.t_gen else None
-        else:
-            generator = nn.Sequential(
-                nn.Linear(model_opt.dec_rnn_size,
-                          len(fields["tgt"].base_field.vocab)),
-                Cast(torch.float32)
-                # gen_func
-            )
-            t_generator = nn.Sequential(
-                # nn.Linear(len(fields["tgt"].base_field.vocab),
-                #           len(fields["tgt"].base_field.vocab)),
-                # # nn.BatchNorm1d(model_opt.enc_rnn_size),
-                # nn.ReLU(),
-                # nn.Dropout(),
-                nn.Linear(len(fields["tgt"].base_field.vocab),
-                          20),  # len(fields["tgt"].base_field.vocab)
-                Cast(torch.float32)
-            ) if model_opt.t_gen else None
         if model_opt.share_decoder_embeddings:
-            generator[0].weight = decoder.embeddings.word_lut.weight
+            # generator[0].weight = decoder.embeddings.word_lut.weight
+            generators["generator"][0].weight = decoder.embeddings.word_lut.weight
 
         if model_opt.tag_gen:
-            tag_generator = nn.Sequential(
+            generators["tag"] = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size,
                           len(fields["pos_tgt"].base_field.vocab)),
                 Cast(torch.float32),
@@ -286,64 +245,28 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         # end of patch for backward compatibility
 
         model.load_state_dict(checkpoint['model'], strict=False)
-        generator.load_state_dict(checkpoint['generator'], strict=False)
-        # TODO(yida) build model
-        if model_opt.tag_gen:
-            tag_generator.load_state_dict(checkpoint['tag_generator'], strict=False)
-        if model_opt.tag_gen == "multi":
-            low_generator.load_state_dict(checkpoint['low_generator'], strict=False)
-            # TODO(yida) temp rl
-            if model_opt.t_gen:
-                for p in low_t_generator.parameters():
-                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-        if model_opt.t_gen:
-            for p in t_generator.parameters():
-                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-        #     if model_opt.t_gen:
-        #         low_t_generator.load_state_dict(checkpoint['low_t_generator'], strict=False)
-        # if model_opt.t_gen:
-        #     t_generator.load_state_dict(checkpoint['t_generator'], strict=False)
+        for k in generators.keys():
+            generators[k].load_state_dict(checkpoint['k'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            for p in generator.parameters():
-                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            # for p in generator.parameters():
+            #     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             # TODO(yida) build model
-            if model_opt.tag_gen:
-                for p in tag_generator.parameters():
-                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            if model_opt.tag_gen == "multi":
-                for p in low_generator.parameters():
-                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-                if model_opt.t_gen:
-                    for p in low_t_generator.parameters():
-                        p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            if model_opt.t_gen:
-                for p in t_generator.parameters():
+            for k in generators.keys():
+                for p in generators[k].parameters():
                     p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
-            for p in generator.parameters():
-                if p.dim() > 1:
-                    xavier_uniform_(p)
+            # for p in generator.parameters():
+            #     if p.dim() > 1:
+            #         xavier_uniform_(p)
             # TODO(yida) build model
-            if model_opt.tag_gen:
-                for p in tag_generator.parameters():
-                    if p.dim() > 1:
-                        xavier_uniform_(p)
-            if model_opt.tag_gen == "multi":
-                for p in low_generator.parameters():
-                    if p.dim() > 1:
-                        xavier_uniform_(p)
-                if model_opt.t_gen:
-                    for p in low_t_generator.parameters():
-                        if p.dim() > 1:
-                            xavier_uniform_(p)
-            if model_opt.t_gen:
-                for p in t_generator.parameters():
+            for k in generators.keys():
+                for p in generators[k].parameters():
                     if p.dim() > 1:
                         xavier_uniform_(p)
 
@@ -354,12 +277,12 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             model.decoder.embeddings.load_pretrained_vectors(
                 model_opt.pre_word_vecs_dec)
 
-    model.generator = generator
+    # model.generator = generator
     # TODO(yida) build model
-    model.tag_generator = tag_generator if model_opt.tag_gen else None
-    model.low_generator = low_generator if model_opt.tag_gen == "multi" else None
-    model.t_generator = t_generator if model_opt.t_gen else None
-    model.low_t_generator = low_t_generator if model_opt.t_gen else None
+    for k, v in generators.items():
+        v.to(device)
+        # setattr(model, k, v)
+    model.generators = generators
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

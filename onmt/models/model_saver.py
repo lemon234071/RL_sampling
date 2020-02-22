@@ -99,11 +99,8 @@ class ModelSaver(ModelSaverBase):
         model_state_dict = model.state_dict()
         model_state_dict = {k: v for k, v in model_state_dict.items()
                             if 'generator' not in k}
-        generator_state_dict = model.generator.state_dict()
-        tag_generator_state_dict = model.tag_generator.state_dict() if model.tag_generator is not None else None
-        low_generator_state_dict = model.low_generator.state_dict() if model.low_generator is not None else None
-        t_generator_state_dict = model.t_generator.state_dict() if model.t_generator is not None else None
-        low_t_generator_state_dict = model.low_t_generator.state_dict() if model.low_t_generator is not None else None
+        # generator_state_dict = model.generator.state_dict()
+        generators_state_dicts = {k: v.state_dict() for k, v in model.generators.items()}
 
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
@@ -122,15 +119,11 @@ class ModelSaver(ModelSaverBase):
 
         checkpoint = {
             'model': model_state_dict,
-            'generator': generator_state_dict,
-            'tag_generator': tag_generator_state_dict,
-            'low_generator': low_generator_state_dict,
-            't_generator': t_generator_state_dict,
-            'low_t_generator': low_t_generator_state_dict,
             'vocab': vocab,
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }
+        checkpoint.update(generators_state_dicts)
 
         logger.info("Saving checkpoint %s_step_%d.pt" % (self.base_path, step))
         checkpoint_path = '%s_step_%d.pt' % (self.base_path, step)

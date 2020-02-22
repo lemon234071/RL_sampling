@@ -131,6 +131,7 @@ def sample_with_dynamic_temperature(logits, tag_logits, learned_t, sample_method
     else:
         if sample_method == "topp":
             logits, _ = get_topp(logits, top_p=0.9)
+            logits = logits / 0.7
         # entropy
         # logits = pos_guide(logits, pos_logits)
 

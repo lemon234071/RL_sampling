@@ -324,10 +324,10 @@ class Translator(object):
         data = inputters.Dataset(
             self.fields,
             # yida translate
-            readers=([self.src_reader, self.tgt_reader, self.tgt_reader]
-                     if tgt else [self.src_reader, self.tgt_reader]),
-            data=[("src", src), ("tgt", tgt), ("pos_src", tag_src)] if tgt else [("src", src), ("pos_src", tag_src)],
-            dirs=[src_dir, None, None] if tgt else [src_dir, None],
+            readers=([self.src_reader, self.tgt_reader]
+                     if tag_src else [self.src_reader, self.tgt_reader]),
+            data=[("src", src), ("pos_src", tag_src)] if tag_src else [("src", src)],
+            dirs=[src_dir, None] if tag_src else [src_dir],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
         )
@@ -515,7 +515,9 @@ class Translator(object):
             mb_device = memory_bank.device
 
         # for mask attn
-        tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+        tag_src = None
+        if hasattr(batch, "pos_src"):
+            tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
 
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
@@ -665,10 +667,12 @@ class Translator(object):
             else:
                 attn = None
             # yida translate
-            tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
-            tag_log_probs = self.model.tag_generator(
-                tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
-            tag_argmax = tag_log_probs.max(1)[1]
+            tag_log_probs = None
+            if self.model.tag_generator is not None:
+                tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
+                tag_log_probs = self.model.tag_generator(
+                    tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
+                tag_argmax = tag_log_probs.max(1)[1]
             if self.model.low_generator is not None:
                 high_indices = tag_argmax.eq(4)
                 low_indices = tag_argmax.eq(5)
@@ -683,7 +687,7 @@ class Translator(object):
                                          dtype=torch.float, device=t_probs.device).unsqueeze(-1)
                     t = torch.mm(t_probs, index) / 10
                     high_logits = high_logits / t
-                high_logits = high_logits / 0.6
+                # high_logits = high_logits / 0.7
                 high_probs = torch.log_softmax(high_logits, dim=-1)
                 low_logits = self.model.low_generator(low_out)
                 if self.model.low_t_generator is not None:
@@ -693,7 +697,7 @@ class Translator(object):
                                          dtype=torch.float, device=low_t_probs.device).unsqueeze(-1)
                     t = torch.mm(low_t_probs, index) / 10
                     low_logits = low_logits / t
-                low_logits = low_logits / 1.1
+                #low_logits = low_logits / 0.7
                 low_probs = torch.log_softmax(low_logits, dim=-1)
                 high_num = self.model.generator._modules["0"].out_features
                 low_num = self.model.low_generator._modules["0"].out_features
