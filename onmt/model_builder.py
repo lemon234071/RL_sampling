@@ -274,8 +274,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # model.generator = generator
     # TODO(yida) build model
     for k, v in generators.items():
-        v.to(device)
-        # setattr(model, k, v)
+        # v.to(device)
+        setattr(model, k, v)
     model.generators = generators
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
