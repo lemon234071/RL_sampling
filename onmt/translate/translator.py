@@ -18,6 +18,7 @@ from onmt.modules.copy_generator import collapse_copy_scores
 from onmt.translate.beam_search import BeamSearch
 from onmt.translate.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
+from utils import *
 
 
 def build_translator(opt, report_score=True, logger=None, out_file=None):
@@ -133,8 +134,8 @@ class Translator(object):
             out_file=None,
             report_score=True,
             logger=None,
-            leanred_t=0.1,
             sample_method="greedy",
+            tag_mask_path="",
             seed=-1):
         self.model = model
         self.fields = fields
@@ -193,9 +194,11 @@ class Translator(object):
         self.use_filter_pred = False
         self._filter_pred = None
 
-        self.leanred_t = leanred_t
         self.sample_method = sample_method
-        print("t", leanred_t)
+        self.tag_mask = load_json(tag_mask_path + "tri_mask.json")
+        for k in self.tag_mask:
+            self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
+        self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
         print("sample_method", sample_method)
         # for debugging
         self.beam_trace = self.dump_beam != ""
@@ -268,8 +271,8 @@ class Translator(object):
             out_file=out_file,
             report_score=report_score,
             logger=logger,
-            leanred_t=opt.learned_t,
             sample_method=opt.sample_method,
+            tag_mask_path=opt.src[:opt.src.rindex("/") + 1],
             seed=opt.seed)
 
     def _log(self, msg):
@@ -388,20 +391,20 @@ class Translator(object):
                 self.out_file.flush()
                 # yida translate
                 # all_entropy += [trans.entropy_sents.tolist()]
-                if self.model.tag_generator is not None:
-                    n_best_tag_preds = [" ".join(tag_pred)
-                                        for tag_pred in trans.tag_pred_sents[:self.n_best]]
-                    all_tag_predictions += [n_best_tag_preds]
-                    pos_seq = []
-                    for x in n_best_tag_preds[0].split():
-                        try:
-                            pos_seq.append(int(x))
-                        except:
-                            pos_seq.append(0)
-                    temp_seq = [x for x in pos_seq if x < 2]
-                    if temp_seq:
-                        cnt_high += sum(temp_seq) / len(temp_seq)
-                    cnt_line += 1
+                # if "tag" in self.model.generators:
+                #     n_best_tag_preds = [" ".join(tag_pred)
+                #                         for tag_pred in trans.tag_pred_sents[:self.n_best]]
+                #     all_tag_predictions += [n_best_tag_preds]
+                #     pos_seq = []
+                #     for x in n_best_tag_preds[0].split():
+                #         try:
+                #             pos_seq.append(int(x))
+                #         except:
+                #             pos_seq.append(0)
+                #     temp_seq = [x for x in pos_seq if x < 2]
+                #     if temp_seq:
+                #         cnt_high += sum(temp_seq) / len(temp_seq)
+                #     cnt_line += 1
                     # all_pos_entropy += [trans.pos_entropy_sents.tolist()]
 
                 if self.verbose:
@@ -525,14 +528,15 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, self.leanred_t, self.sample_method, tag_src)
+            None,  # self.model.generators.get("tag", None),
+            self.sample_method, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
             decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
             # yida translate
             tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
-                if self.model.tag_generator is not None else None
+                if "tag" in self.model.generators else None
             tag_decoder_src = random_sampler.tag_alive_src \
                 if tag_src is not None else None
 
@@ -582,8 +586,8 @@ class Translator(object):
         results["attention"] = random_sampler.attention
         # yida translate
         # results["entropy"] = random_sampler.entropy
-        if self.model.tag_generator is not None:
-            results["tag_predictions"] = random_sampler.tag_predictions
+        # if "tag" in self.model.generators:
+        #     results["tag_predictions"] = random_sampler.tag_predictions
             # results["pos_entropy"] = random_sampler.pos_entropy
         return results
 
@@ -656,7 +660,7 @@ class Translator(object):
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         dec_out, dec_attn, rnn_outs = self.model.decoder(
             # yida translate
-            decoder_in, memory_bank, self.model.tag_generator,
+            decoder_in, memory_bank, self.model.generators["tag"],
             tag_src, tag_decoder_in, memory_lengths=memory_lengths, step=step
         )
 
@@ -668,46 +672,28 @@ class Translator(object):
                 attn = None
             # yida translate
             tag_log_probs = None
-            if self.model.tag_generator is not None:
+            if "tag" in self.model.generators:
                 tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
-                tag_log_probs = self.model.tag_generator(
-                    tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
+                tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
                 tag_argmax = tag_log_probs.max(1)[1]
-            if self.model.low_generator is not None:
-                high_indices = tag_argmax.eq(4)
-                low_indices = tag_argmax.eq(5)
-                high_out = dec_out.squeeze(0)[high_indices]
-                low_out = dec_out.squeeze(0)[low_indices]
-                assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
-                high_logits = self.model.generator(high_out)
-                if self.model.t_generator is not None:
-                    logits_t = self.model.t_generator(high_logits)
-                    t_probs = (logits_t * 1e8).softmax(dim=-1)
-                    index = torch.arange(1, t_probs.shape[-1] + 1,
-                                         dtype=torch.float, device=t_probs.device).unsqueeze(-1)
-                    t = torch.mm(t_probs, index) / 10
-                    high_logits = high_logits / t
-                # high_logits = high_logits / 0.7
-                high_probs = torch.log_softmax(high_logits, dim=-1)
-                low_logits = self.model.low_generator(low_out)
-                if self.model.low_t_generator is not None:
-                    low_logits_t = self.model.low_t_generator(low_logits)
-                    low_t_probs = (low_logits_t * 1e8).softmax(dim=-1)
-                    index = torch.arange(1, low_t_probs.shape[-1] + 1,
-                                         dtype=torch.float, device=low_t_probs.device).unsqueeze(-1)
-                    t = torch.mm(low_t_probs, index) / 10
-                    low_logits = low_logits / t
-                #low_logits = low_logits / 0.7
-                low_probs = torch.log_softmax(low_logits, dim=-1)
-                high_num = self.model.generator._modules["0"].out_features
-                low_num = self.model.low_generator._modules["0"].out_features
-                log_probs = torch.full([dec_out.squeeze(0).shape[0], high_num + low_num], -float('inf'),
-                                       dtype=torch.float, device=high_out.device)
-                log_probs[high_indices, :high_probs.shape[1]] = high_probs
-                log_probs[low_indices, high_probs.shape[1]:] = low_probs
-            else:
-                logits = self.model.generator(dec_out.squeeze(0))
-                log_probs = torch.log_softmax(logits, dim=-1)
+
+            log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                                   dtype=torch.float, device=self._dev)
+            for k, gen in self.model.generators.items():
+                if k == "tag":
+                    continue
+                indices = tag_argmax.eq(self.tag_vocab[k])
+                if indices.any():
+                    k_output = dec_out.squeeze(0)[indices]
+                    k_logits = gen(k_output)
+                    mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                    log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
+            temp = log_probs.max(1)[0].lt(-100).sum().item()
+            try:
+                assert temp <= 0
+            except:
+                print(1)
+
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:

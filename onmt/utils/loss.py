@@ -10,8 +10,6 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 import onmt
-from onmt.modules.sparse_activations import LogSparsemax
-from onmt.modules.sparse_losses import SparsemaxLoss
 from utils import *
 
 
@@ -34,25 +32,27 @@ def build_loss_compute(model, fields, opt, train=True):
         assert opt.coverage_attn, "--coverage_attn needs to be set in " \
                                   "order to use --lambda_coverage != 0"
 
-    if opt.copy_attn:
-        criterion = onmt.modules.CopyGeneratorLoss(
-            len(tgt_field.vocab), opt.copy_attn_force,
-            unk_index=unk_idx, ignore_index=padding_idx
-        )
-    elif opt.label_smoothing > 0 and train:
-        criterion = LabelSmoothingLoss(
-            opt.label_smoothing, len(tgt_field.vocab), ignore_index=padding_idx
-        )
-    elif isinstance(model.generators["generator"][-1], LogSparsemax):
-        criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
-    else:
-        criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
+    # if opt.copy_attn:
+    #     criterion = onmt.modules.CopyGeneratorLoss(
+    #         len(tgt_field.vocab), opt.copy_attn_force,
+    #         unk_index=unk_idx, ignore_index=padding_idx
+    #     )
+    # elif opt.label_smoothing > 0 and train:
+    #     criterion = LabelSmoothingLoss(
+    #         opt.label_smoothing, len(tgt_field.vocab), ignore_index=padding_idx
+    #     )
+    # elif isinstance(model.generator[-1], LogSparsemax):
+    #     criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
+    # else:
+    #     criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
+    criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
 
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
     # passed to the NMTLossCompute. At the moment, the only supported
     # loss function of this kind is the sparsemax loss.
-    use_raw_logits = isinstance(criterion, SparsemaxLoss)
+
+    # use_raw_logits = isinstance(criterion, SparsemaxLoss)
     # loss_gen = model.generator[0] if use_raw_logits else model.generator
     loss_gen = None
 
@@ -249,8 +249,7 @@ class NMTLossCompute(LossComputeBase):
                  lambda_coverage=0.0):
         super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
-        # self.generator = generator
-        self.generator = generators.get("generator", None)
+        self.generator = generator
 
         self.generators = generators
         self.itoj = load_json(datapath[:datapath.rfind("/") + 1] + "tri_itoj.json")

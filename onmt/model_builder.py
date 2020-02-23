@@ -114,12 +114,8 @@ def load_test_model(opt, model_path=None):
     if opt.fp32:
         model.float()
     model.eval()
-    model.generator.eval()
-    # TODO(yida)
-    if model_opt.tag_gen:
-        model.tag_generator.eval()
-    if model_opt.tag_gen == "multi":
-        model.low_generator.eval()
+    for v in model.generators.values():
+        v.eval()
     return fields, model, model_opt
 
 
@@ -211,11 +207,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 Cast(torch.float32)
                 # gen_func
             )
-        assert "generator" in generators.keys()
 
-        if model_opt.share_decoder_embeddings:
+        # if model_opt.share_decoder_embeddings:
             # generator[0].weight = decoder.embeddings.word_lut.weight
-            generators["generator"][0].weight = decoder.embeddings.word_lut.weight
 
         if model_opt.tag_gen:
             generators["tag"] = nn.Sequential(
@@ -246,7 +240,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         model.load_state_dict(checkpoint['model'], strict=False)
         for k in generators.keys():
-            generators[k].load_state_dict(checkpoint['k'], strict=False)
+            generators[k].load_state_dict(checkpoint[k], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():

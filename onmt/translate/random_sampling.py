@@ -61,8 +61,7 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, tag_logits, leanred_t, mask=True):
-    # logits_backup = logits.clone()
+def freq_guide(logits, tag_logits, mask=True):
     topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
     high = topk_tag_ids.eq(4)
     low = topk_tag_ids.eq(5)
@@ -125,21 +124,23 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, tag_logits, learned_t, sample_method="greedy"):
+def sample_with_dynamic_temperature(logits, tag_logits, sample_method="greedy"):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     else:
-        if sample_method == "topp":
+        if sample_method == "random":
+            logits = logits
+        elif sample_method == "topp":
             logits, _ = get_topp(logits, top_p=0.9)
-            logits = logits / 0.7
+            # logits = logits / 0.7
         # entropy
         # logits = pos_guide(logits, pos_logits)
 
         ## freq x
         elif sample_method == "freq":
-            logits = freq_guide(logits, tag_logits, learned_t)
+            logits = freq_guide(logits, tag_logits)
         elif sample_method == "topk":
-            logits = topk_guide(logits, tag_logits, learned_t * 10)
+            logits = topk_guide(logits, tag_logits)
         else:
             raise Exception("wrong sample method")
 
@@ -236,7 +237,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 tag_gen, leanred_t, sample_method, tag_src):
+                 tag_gen, sample_method, tag_src):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -256,7 +257,7 @@ class RandomSampling(DecodeStrategy):
             [batch_size * 1, 1], bos,
             dtype=torch.long, device=device)
         self.tag_gen = tag_gen
-        self.leanred_t = leanred_t
+
         self.sample_method = sample_method
         self.tag_alive_src = tag_src
 
@@ -292,7 +293,7 @@ class RandomSampling(DecodeStrategy):
         #     topk_ids, self.topk_scores = \
         #         sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t)
         topk_ids, self.topk_scores = \
-            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.leanred_t, self.sample_method)
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 

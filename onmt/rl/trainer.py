@@ -520,20 +520,19 @@ class Translator(object):
         # input = enc_states.transpose(0, 1)
         # input = input.contiguous().view(input.size(0), -1)
         inputs = enc_states[-1].squeeze()
-        logits_t = self.rl_model(inputs)
-        low_logits_t = self.rl_model.generator(inputs) if self.rl_model.generator is not None else None
+        log_probs = self.rl_model(inputs)
 
         # compute loss
-        loss = self._compute_loss_k(logits_t, low_logits_t, batch, data, xlation_builder,
+        loss = self._compute_loss_k(log_probs, batch, data, xlation_builder,
                                     src, enc_states, memory_bank, src_lengths)
         # loss.backward()
         if loss is not None:
             self.optim.backward(loss)
         self.optim.step()
 
-    def _compute_loss_k(self, logits_t, low_logits_t, batch, data, xlation_builder, src, enc_states, memory_bank,
+    def _compute_loss_k(self, log_probs, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
-        low_k_topk_ids = None
+        ts_ids = []
         if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
@@ -541,27 +540,20 @@ class Translator(object):
                 low_k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                                device=self._dev) for i in range(self.samples_n)]
         else:
-            dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
-            k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
-            if low_logits_t is not None:
-                low_dist = torch.distributions.Multinomial(logits=low_logits_t, total_count=1)
-                low_k_topk_ids = [torch.argmax(low_dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
 
-        k_learned_t = self.tid2t(k_topk_ids)
-        k_topk_ids = torch.stack(k_topk_ids, -1)
-        # k_topk_ids = torch.cat(k_topk_ids, 0)
-        k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
-        # k_logits_t = torch.cat([logits_t] * k, 0)
-        loss_t = self.criterion(k_logits_t, k_topk_ids.squeeze()).mean(0)
+            for logits in log_probs:
+                dist = torch.distributions.Multinomial(logits=logits, total_count=1)
+                k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
+                ts_ids.append(k_topk_ids)
 
-        low_k_t = None
-        if low_k_topk_ids is not None:
-            low_k_t = self.tid2t(low_k_topk_ids)
-            low_k_topk_ids = torch.stack(low_k_topk_ids, -1)
+        loss_t = torch.tensor(0, dtype=torch.float, device=self._dev)
+        for tids, logits_t in zip(ts_ids, log_probs):
+            k_learned_t = self.tid2t(tids)
+            tids = torch.stack(tids, -1)
             # k_topk_ids = torch.cat(k_topk_ids, 0)
-            low_k_logits_t = torch.stack([low_logits_t] * self.samples_n, -1)
+            k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
             # k_logits_t = torch.cat([logits_t] * k, 0)
-            loss_t += self.criterion(low_k_logits_t, low_k_topk_ids.squeeze()).mean(0)
+            loss_t += self.criterion(k_logits_t, tids.squeeze()).mean(0)
 
         # infer samples(slow or not
         attn_debug = False

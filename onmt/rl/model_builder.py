@@ -161,40 +161,35 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     #     nn.ReLU(),
     #     nn.Dropout()
     # )
+    input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
+    output_size = 54 if model_opt.sample_method == "topk" else 20
+
+    generators = {}
+    for i, k in enumerate(model_opt.generators.split(",")):
+        generators[k] = nn.Sequential(
+            nn.Linear(input_size,
+                      input_size),
+            Cast(torch.float32),
+            # nn.BatchNorm1d(model_opt.enc_rnn_size),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(input_size, output_size),
+            Cast(torch.float32),
+            gen_func
+        )
+
     class TMEPModel(nn.Module):
-        def __init__(self, mlp):
+        def __init__(self, modules):
             super(TMEPModel, self).__init__()
-            self.mlp = mlp
+            self.modules = modules
 
         def forward(self, inputs):
-            return self.mlp(inputs)
+            outputs = []
+            for m in self.modules:
+                outputs.append(m(inputs))
+            return outputs
 
-    input_size = len(fields["tgt"].base_field.vocab) if model_opt.rl_step else model_opt.enc_rnn_size
-    output_size = 54 if model_opt.sample_method == "topk" else 20
-    model = TMEPModel(nn.Sequential(
-        nn.Linear(input_size,
-                  input_size),
-        Cast(torch.float32),
-        # nn.BatchNorm1d(model_opt.enc_rnn_size),
-        nn.ReLU(),
-        nn.Dropout(),
-        nn.Linear(input_size, output_size),
-        Cast(torch.float32),
-        gen_func
-    ))
-
-    low_gen = True
-    generator = nn.Sequential(
-        nn.Linear(input_size,
-                  input_size),
-        Cast(torch.float32),
-        # nn.BatchNorm1d(model_opt.enc_rnn_size),
-        nn.ReLU(),
-        nn.Dropout(),
-        nn.Linear(input_size, output_size),
-        Cast(torch.float32),
-        gen_func
-    ) if low_gen else None
+    model = TMEPModel(generators)
 
     # Load the model states from checkpoint or initialize them.
     if checkpoint is not None:
@@ -211,25 +206,17 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         # end of patch for backward compatibility
 
         model.load_state_dict(checkpoint['model'], strict=False)
-        if generator is not None:
-            generator.load_state_dict(checkpoint['generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            if generator is not None:
-                for p in generator.parameters():
-                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
-            if generator is not None:
-                for p in generator.parameters():
-                    if p.dim() > 1:
-                        xavier_uniform_(p)
 
-    model.generator = generator
+    for k, v in model.generators:
+        v.to(device)
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

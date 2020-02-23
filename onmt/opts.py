@@ -761,7 +761,7 @@ def translate_opts(parser):
     # yida sampling
     group.add('--infer', '-infer', action='store_true', help="infer.")
     group.add('--sample_method', '-sample_method', default='greedy',
-              choices=['greedy', 'freq', 'topk', 'topp'],
+              choices=['random', 'greedy', 'freq', 'topk', 'topp'],
               help="")
     group.add('--rl_step', '-rl_step', action='store_true',
               help=".")
