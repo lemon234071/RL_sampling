@@ -490,7 +490,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0:  # or step == 1:
+                if step % self.valid_steps == 0 or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
