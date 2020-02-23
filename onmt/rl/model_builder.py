@@ -165,7 +165,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     output_size = 54 if model_opt.sample_method == "topk" else 20
 
     generators = {}
-    for i, k in enumerate(model_opt.generators.split(",")):
+    for i, kv in enumerate(model_opt.generators.split(",")):
+        k, _ = kv.split(":")
         generators[k] = nn.Sequential(
             nn.Linear(input_size,
                       input_size),
@@ -179,13 +180,13 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         )
 
     class TMEPModel(nn.Module):
-        def __init__(self, modules):
+        def __init__(self, generators):
             super(TMEPModel, self).__init__()
-            self.modules = modules
+            self.generators = generators
 
         def forward(self, inputs):
             outputs = {}
-            for k, m in self.modules.items():
+            for k, m in self.generators.items():
                 outputs[k] = m(inputs)
             return outputs
 
@@ -215,8 +216,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 if p.dim() > 1:
                     xavier_uniform_(p)
 
-    for k, v in model.modules:
-        v.to(device)
+    for k, v in model.generators.items():
+        setattr(model, k, v)
+        # v.to(device)
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

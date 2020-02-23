@@ -177,7 +177,7 @@ def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
         # logits = pos_guide(logits, pos_logits)
 
         ## freq x
-        if sample_method == "freq":
+        elif sample_method == "freq":
             logits = freq_guide(logits, pos_logits)
         elif sample_method == "topk":
             logits = topk_guide(logits, pos_logits)
@@ -365,10 +365,8 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        for k, v in self.learned_t.items():
-            v = v[is_alive]
-        if self.low_t is not None:
-            self.low_t = self.low_t[is_alive]
+        for k in self.learned_t.keys():
+            self.learned_t[k] = self.learned_t[k][is_alive]
         # self.H_alive_seq = self.H_alive_seq[is_alive]
         if self.tag_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
