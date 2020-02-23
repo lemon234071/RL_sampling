@@ -591,6 +591,10 @@ def train_opts(parser):
               help="Using grayscale image can training "
                    "model faster and smaller")
 
+    # yida train
+    group.add('--itoj', '-itoj', type=str, default="",
+              help="Mapping vocab to sub-vocab")
+
 
 def translate_opts(parser):
     """ Translation / inference options """
@@ -755,9 +759,7 @@ def translate_opts(parser):
               type=int, default=3, choices=[3, 1],
               help="Using grayscale image can training "
                    "model faster and smaller")
-    # yida translate
-    group.add('--learned_t', '-learned_t', default=0.1, type=float,
-              help="learned_t.")
+
     # yida sampling
     group.add('--infer', '-infer', action='store_true', help="infer.")
     group.add('--sample_method', '-sample_method', default='greedy',

@@ -677,22 +677,25 @@ class Translator(object):
                 tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
                 tag_argmax = tag_log_probs.max(1)[1]
 
-            log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
-                                   dtype=torch.float, device=self._dev)
-            for k, gen in self.model.generators.items():
-                if k == "tag":
-                    continue
-                indices = tag_argmax.eq(self.tag_vocab[k])
-                if indices.any():
-                    k_output = dec_out.squeeze(0)[indices]
-                    k_logits = gen(k_output)
-                    mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
-                    log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
-            temp = log_probs.max(1)[0].lt(-100).sum().item()
-            try:
-                assert temp <= 0
-            except:
-                print(1)
+                log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                                       dtype=torch.float, device=self._dev)
+                for k, gen in self.model.generators.items():
+                    if k == "tag":
+                        continue
+                    indices = tag_argmax.eq(self.tag_vocab[k])
+                    if indices.any():
+                        k_output = dec_out.squeeze(0)[indices]
+                        k_logits = gen(k_output)
+                        mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                        log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
+                temp = log_probs.max(1)[0].lt(-100).sum().item()
+                try:
+                    assert temp <= 0
+                except:
+                    print(1)
+            else:
+                logits = self.model.generators["generator"](dec_out.squeeze(0))
+                log_probs = torch.log_softmax(logits, dim=-1)
 
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence

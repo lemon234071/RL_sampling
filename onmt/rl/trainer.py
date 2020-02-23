@@ -22,6 +22,7 @@ from onmt.rl.beam_search import BeamSearch
 from onmt.rl.eval import cal_reward, cal_reward_tokens
 from onmt.rl.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
+from utils import *
 
 
 def build_rltor_enc(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
@@ -141,6 +142,7 @@ class Translator(object):
             report_score=True,
             logger=None,
             sample_method="freq",
+            tag_mask_path="",
             epochs=4,
             samples_n=2,
             report_every=5,
@@ -227,6 +229,11 @@ class Translator(object):
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
         self.random_steps = random_steps
+        self.tag_mask = load_json(tag_mask_path + "tri_mask.json")
+        for k in self.tag_mask:
+            self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
+        self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
+
         self.rl_model.train()
         self.model.eval()
 
@@ -301,6 +308,7 @@ class Translator(object):
             random_steps=opt.random_steps,
             samples_n=opt.rl_samples,
             sample_method=opt.sample_method,
+            tag_mask_path=opt.src[:opt.src.rindex("/") + 1],
             sta=opt.statistic,
             #
             seed=opt.seed)
@@ -532,7 +540,7 @@ class Translator(object):
 
     def _compute_loss_k(self, log_probs, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
-        ts_ids = []
+        ts_ids = {}
         if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                        device=self._dev) for i in range(self.samples_n)]
@@ -541,15 +549,16 @@ class Translator(object):
                                                device=self._dev) for i in range(self.samples_n)]
         else:
 
-            for logits in log_probs:
+            for k, logits in log_probs.items():
                 dist = torch.distributions.Multinomial(logits=logits, total_count=1)
                 k_topk_ids = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
-                ts_ids.append(k_topk_ids)
+                ts_ids[k] = k_topk_ids
 
         loss_t = torch.tensor(0, dtype=torch.float, device=self._dev)
-        for tids, logits_t in zip(ts_ids, log_probs):
-            k_learned_t = self.tid2t(tids)
-            tids = torch.stack(tids, -1)
+        learned_t = {}
+        for k, logits_t in log_probs.items():
+            learned_t[k] = self.tid2t(ts_ids[k])
+            tids = torch.stack(ts_ids[k], -1)
             # k_topk_ids = torch.cat(k_topk_ids, 0)
             k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
             # k_logits_t = torch.cat([logits_t] * k, 0)
@@ -565,7 +574,7 @@ class Translator(object):
                 self.model.decoder.init_state(src, memory_bank, enc_states)
             batch_data = self.translate_batch(
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-                k_learned_t[i], low_k_t[i] if low_k_t is not None else None, sample_method=self.samples_method
+                {k: v[i] for k, v in learned_t.items()}, sample_method=self.samples_method
             )
             # tokens_reward = self.tokens_reward(batch_data, batch)
             # translate, so slow
@@ -787,7 +796,7 @@ class Translator(object):
             src_vocabs,
             max_length,
             # yida RL translate
-            memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta, sample_method,
+            memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
             #
             min_length=0,
             sampling_temp=1.0,
@@ -835,7 +844,7 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            self.model.tag_generator is not None, vocab_pos, learned_t, low_t, sample_method, tag_src)
+            None, vocab_pos, learned_t, sample_method, tag_src)
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -901,7 +910,7 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta=False, sample_method="freq"):
+                        memory_bank, src_lengths, enc_states, src, learned_t, sta=False, sample_method="freq"):
         """Translate a batch of sentences."""
         with torch.no_grad():
             return self._translate_random_sampling(
@@ -909,7 +918,7 @@ class Translator(object):
                 src_vocabs,
                 self.max_length,
                 # yida RL translate
-                memory_bank, src_lengths, enc_states, src, learned_t, low_t, sta, sample_method,
+                memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
                 #
                 min_length=self.min_length,
                 sampling_temp=self.random_sampling_temp,
@@ -974,35 +983,30 @@ class Translator(object):
                 attn = None
 
             tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
-            tag_log_probs = self.model.tag_generator(
-                tag_outputs.squeeze(0)) if self.model.tag_generator is not None else None
+            tag_log_probs = self.model.generators["tag"](
+                tag_outputs.squeeze(0)) if "tag" in self.model.generators else None
             tag_argmax = tag_log_probs.max(1)[1]
-            if self.model.low_generator is not None:
-                high_indices = tag_argmax.eq(4)
-                low_indices = tag_argmax.eq(5)
-                high_out = dec_out.squeeze(0)[high_indices]
-                low_out = dec_out.squeeze(0)[low_indices]
-                assert high_out.shape[0] + low_out.shape[0] == tag_argmax.shape[0]
-                high_num = self.model.generator._modules["0"].out_features
-                low_num = self.model.low_generator._modules["0"].out_features
-                log_probs = torch.full([dec_out.squeeze(0).shape[0], high_num + low_num], -float('inf'),
-                                       dtype=torch.float, device=high_out.device)
-                if high_out.shape[0] > 0:
-                    high_logits = self.model.generator(high_out)
-                    high_probs = torch.log_softmax(high_logits / learned_t[high_indices], dim=-1)
-                    log_probs[high_indices, :high_num] = high_probs
-                if low_out.shape[0] > 0:
-                    low_logits = self.model.low_generator(low_out)
-                    low_logits /= low_t[low_indices] if low_t is not None else learned_t[low_indices]
-                    low_probs = torch.log_softmax(low_logits, dim=-1)
-                    log_probs[low_indices, high_num:] = low_probs
-            else:
-                logits = self.model.generator(dec_out.squeeze(0))
-                log_probs = torch.log_softmax(logits, dim=-1)
-            # log_probs = self.model.generator(dec_out.squeeze(0))
-            # # yida translate
-            # pos_log_probs = self.model.tag_generator(
-            #     dec_out.squeeze(0)) if self.model.tag_generator is not None else None
+
+            log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                                   dtype=torch.float, device=self._dev)
+            for k, gen in self.model.generators.items():
+                if k == "tag":
+                    continue
+                indices = tag_argmax.eq(self.tag_vocab[k])
+                if indices.any():
+                    k_output = dec_out.squeeze(0)[indices]
+                    k_logits = gen(k_output)
+                    k_probs = torch.log_softmax(k_logits / learned_t[indices], dim=-1)
+                    mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                    log_probs.masked_scatter_(mask.bool(), k_probs)
+            temp = log_probs.max(1)[0].lt(-100).sum().item()
+            try:
+                assert temp <= 0
+            except:
+                print(1)
+            # else:
+            #     logits = self.model.generators["generator"](dec_out.squeeze(0))
+            #     log_probs = torch.log_softmax(logits, dim=-1)
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         else:

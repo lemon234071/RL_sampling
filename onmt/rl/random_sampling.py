@@ -61,7 +61,7 @@ def pos_guide(logits, pos_logits, cross=True):
     return logits
 
 
-def freq_guide(logits, tag_logits, learned_t, mask=True):
+def freq_guide(logits, tag_logits, mask=True):
     # topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
     # high = topk_tag_ids.eq(4)
     # low = topk_tag_ids.eq(5)
@@ -164,10 +164,12 @@ def topk_guide(logits, pos_logits, learned_k):
 
 
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method):
+def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     else:
+        if sample_method == "random":
+            logits = logits
         # logits, _ = get_topp(logits, top_p=0.9)
         # logits /= 1
 
@@ -176,9 +178,9 @@ def sample_with_dynamic_temperature(logits, pos_logits, learned_t, sample_method
 
         ## freq x
         if sample_method == "freq":
-            logits = freq_guide(logits, pos_logits, learned_t)
+            logits = freq_guide(logits, pos_logits)
         elif sample_method == "topk":
-            logits = topk_guide(logits, pos_logits, learned_t * 10)
+            logits = topk_guide(logits, pos_logits)
         else:
             raise Exception("wrong sample method")
 
@@ -274,7 +276,7 @@ class RandomSampling(DecodeStrategy):
                  return_attention, max_length, sampling_temp, keep_topk,
                  memory_length,
                  # yida translate
-                 tag_gen, vocab_pos, learned_t, low_t, sample_method, tag_src):
+                 tag_gen, vocab_pos, learned_t, sample_method, tag_src):
         super(RandomSampling, self).__init__(
             pad, bos, eos, batch_size, device, 1,
             min_length, block_ngram_repeat, exclusion_tokens,
@@ -289,6 +291,7 @@ class RandomSampling(DecodeStrategy):
         self.original_batch_idx = torch.arange(self.batch_size,
                                                dtype=torch.long, device=device)
         # yida translate
+        self.learned_t = learned_t
         self.pos_predictions = [[] for _ in range(batch_size)]
         # self.entropy = [[] for _ in range(batch_size)]
         # self.pos_entropy = [[] for _ in range(batch_size)]
@@ -298,8 +301,6 @@ class RandomSampling(DecodeStrategy):
         # self.pos_H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         # self.H_alive_seq = self.pos_alive_seq.clone().to(torch.float32)
         self.tag_gen = tag_gen
-        self.learned_t = learned_t
-        self.low_t = low_t
         self.sample_method = sample_method
         self.tag_alive_src = tag_src
 
@@ -329,7 +330,7 @@ class RandomSampling(DecodeStrategy):
 
         # yida translate
         topk_ids, self.topk_scores = \
-            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.learned_t, self.sample_method)
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 
@@ -364,7 +365,8 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        self.learned_t = self.learned_t[is_alive]
+        for k, v in self.learned_t.items():
+            v = v[is_alive]
         if self.low_t is not None:
             self.low_t = self.low_t[is_alive]
         # self.H_alive_seq = self.H_alive_seq[is_alive]

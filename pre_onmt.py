@@ -504,8 +504,13 @@ def tri_reddit_json(path, out_dir, n):
     itoj = [0, 1, 2, 3]
     tri_mask = {"stop": [False] * 50004, "vn": [False] * 50004, "ord": [False] * 50004}
     tri_mask["stop"][:4] = [True, True, True, True]
+    freq_itoj = []
 
     for i, (word, pos) in enumerate(vocab_pos):
+        if i < 154:
+            freq_itoj.append(i)
+        else:
+            freq_itoj.append(i - 154)
         if word in set_stopwords:
             itoj.append(len(stopwords_vocab) + 4)
             stopwords_vocab.append((word, i))
@@ -524,6 +529,7 @@ def tri_reddit_json(path, out_dir, n):
     print(len(vn_vocab), "vn")
     print(len(ord_vocab), "or")
 
+    save_json(freq_itoj, out_dir + "freq_itoj.json")
     save_json(tri_mask, out_dir + "tri_mask.json")
     save_json(itoj, out_dir + "tri_itoj.json")
     save_json(stopwords_vocab, out_dir + "stop_vocab.json")

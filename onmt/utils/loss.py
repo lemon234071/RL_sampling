@@ -63,7 +63,7 @@ def build_loss_compute(model, fields, opt, train=True):
             lambda_coverage=opt.lambda_coverage
         )
     else:
-        compute = NMTLossCompute(criterion, loss_gen, model.generators, opt.data,
+        compute = NMTLossCompute(criterion, loss_gen, model.generators, opt.itoj,
                                  opt.statistic, tag_field.vocab.stoi, device, train=train,
                                  lambda_coverage=opt.lambda_coverage)
     compute.to(device)
@@ -242,7 +242,7 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, generators, datapath, sta, tag_vocab,
+    def __init__(self, criterion, generator, generators, itoj_path, sta, tag_vocab,
                  device,
                  train=False,
                  normalization="sents",
@@ -252,7 +252,7 @@ class NMTLossCompute(LossComputeBase):
         self.generator = generator
 
         self.generators = generators
-        self.itoj = load_json(datapath[:datapath.rfind("/") + 1] + "tri_itoj.json")
+        self.itoj = load_json(itoj_path)
         self.tag_vocab = tag_vocab
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")

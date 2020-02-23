@@ -184,9 +184,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             self.modules = modules
 
         def forward(self, inputs):
-            outputs = []
-            for m in self.modules:
-                outputs.append(m(inputs))
+            outputs = {}
+            for k, m in self.modules.items():
+                outputs[k] = m(inputs)
             return outputs
 
     model = TMEPModel(generators)
