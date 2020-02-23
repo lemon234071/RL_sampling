@@ -16,9 +16,9 @@ elif [ "$2" = "train" ]; then
     echo "Input arg 3 Is Error: $3."
   fi
 elif [ "$2" = "infer" ]; then
-  python3 translate.py -gpu "$1" -model "$3" -sample_method "$4" -output result/"$DATA_DIR"_"$DATASET"_"$4".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-test.txt -max_length 30 -pos_src "$DATA_DIR"/"$DATASET"-src-test.txt
+  python3 translate.py -gpu "$1" -model "$3" -sample_method "$4" -tag_mask  -output result/"$DATA_DIR"_"$DATASET"_"$4".txt -beam 1 -batch_size 128 -src "$DATA_DIR"/src-test.txt -max_length 30 -pos_src "$DATA_DIR"/"$DATASET"-src-test.txt
 elif [ "$2" = "rl_train" ]; then
-  CUDA_VISIBLE_DEVICES="$1" python3 rl_train.py -gpu 0 -model "$3" -sample_method "$4" -rl_samples 4 -epochs 2 -batch_size 1024 -report_every 5 -valid_steps 20 -save_checkpoint_steps 40 -random_steps 40 -learning_rate 0.01 -learning_rate_decay 0.75 -start_decay_steps 30 -decay_steps 30 -save_model rl_checkpoint/mlp_"$4"_"$5" -data "$DATA_DIR"/"$DATASET" -src "$DATA_DIR"/src-train.txt -tgt "$DATA_DIR"/tgt-train.txt -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/tgt-valid.txt -tag_src "$DATA_DIR"/"$DATASET"-src-train.txt -tag_tgt "$DATA_DIR"/"$DATASET"-tgt-train.txt -valid_tag_src "$DATA_DIR"/"$DATASET"-src-valid.txt -valid_tag_tgt "$DATA_DIR"/"$DATASET"-tgt-valid.txt -optim adam -output result/rl_"$DATA_DIR"_"$DATASET"_"$4"_"$5".txt -beam 1 -max_length 30
+  CUDA_VISIBLE_DEVICES="$1" python3 rl_train.py -gpu 0 -model "$3" -sample_method "$4" -tag_mask -rl_samples 4 -epochs 2 -batch_size 1024 -report_every 5 -valid_steps 20 -save_checkpoint_steps 40 -random_steps 40 -learning_rate 0.01 -learning_rate_decay 0.75 -start_decay_steps 30 -decay_steps 30 -save_model rl_checkpoint/mlp_"$4"_"$5" -data "$DATA_DIR"/"$DATASET" -src "$DATA_DIR"/src-train.txt -tgt "$DATA_DIR"/tgt-train.txt -valid_src "$DATA_DIR"/src-valid.txt -valid_tgt "$DATA_DIR"/tgt-valid.txt -tag_src "$DATA_DIR"/"$DATASET"-src-train.txt -tag_tgt "$DATA_DIR"/"$DATASET"-tgt-train.txt -valid_tag_src "$DATA_DIR"/"$DATASET"-src-valid.txt -valid_tag_tgt "$DATA_DIR"/"$DATASET"-tgt-valid.txt -optim adam -output result/rl_"$DATA_DIR"_"$DATASET"_"$4"_"$5".txt -beam 1 -max_length 30
 elif [ "$2" = "rl_infer" ]; then
   CUDA_VISIBLE_DEVICES="$1" python3 rl_train.py -infer -train_from rl_checkpoint/mlp_freq_v2_step_900.pt
 else

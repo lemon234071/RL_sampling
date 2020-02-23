@@ -195,7 +195,7 @@ class Translator(object):
         self._filter_pred = None
 
         self.sample_method = sample_method
-        self.tag_mask = load_json(tag_mask_path + "tri_mask.json")
+        self.tag_mask = load_json(tag_mask_path)
         for k in self.tag_mask:
             self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
         self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
@@ -272,7 +272,7 @@ class Translator(object):
             report_score=report_score,
             logger=logger,
             sample_method=opt.sample_method,
-            tag_mask_path=opt.src[:opt.src.rindex("/") + 1],
+            tag_mask_path=opt.tag_mask,
             seed=opt.seed)
 
     def _log(self, msg):

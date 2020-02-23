@@ -229,7 +229,7 @@ class Translator(object):
         self.rl_model, self.optim, self.model_saver = rl_model, optim, model_saver
         self.criterion = torch.nn.NLLLoss(reduction='none')
         self.random_steps = random_steps
-        self.tag_mask = load_json(tag_mask_path + "tri_mask.json")
+        self.tag_mask = load_json(tag_mask_path)
         for k in self.tag_mask:
             self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
         self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
@@ -308,7 +308,7 @@ class Translator(object):
             random_steps=opt.random_steps,
             samples_n=opt.rl_samples,
             sample_method=opt.sample_method,
-            tag_mask_path=opt.src[:opt.src.rindex("/") + 1],
+            tag_mask_path=opt.tag_mask,
             sta=opt.statistic,
             #
             seed=opt.seed)

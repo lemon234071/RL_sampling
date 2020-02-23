@@ -323,7 +323,9 @@ class NMTLossCompute(LossComputeBase):
                 if indices.any():
                     k_output = bottled_output[indices]
                     k_gtruth = gtruth[indices]
-                    k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth], dtype=torch.long, device=self.device)
+                    if k == "0":
+                        k_gtruth = k_gtruth - 154
+                    # k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth], dtype=torch.long, device=self.device)
                     k_logits = gen(k_output)
                     k_scores = k_logits.log_softmax(dim=-1)
                     loss_dict["loss"] += self.criterion(k_scores, k_gtruth)

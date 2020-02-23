@@ -761,6 +761,9 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida sampling
+
+    group.add('--tag_mask', '-tag_mask', default="", type=str,
+              help="tag_mask path.")
     group.add('--infer', '-infer', action='store_true', help="infer.")
     group.add('--sample_method', '-sample_method', default='greedy',
               choices=['random', 'greedy', 'freq', 'topk', 'topp'],
