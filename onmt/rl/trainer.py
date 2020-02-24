@@ -605,12 +605,10 @@ class Translator(object):
             reward_argmax = metirc_argmax["bleu"]  # *100 + reward_bl_dict["dist"]
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
-        bleu_mean = sum(k_bleu) / len(k_bleu)
-        dist_mean = sum(k_dist) / len(k_dist)
-
-        # reward_bl = reward_mean
-        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_argmax) / max(
-            [abs(x - reward_argmax) for x in k_reward_qs])
+        reward_bl = reward_mean
+        # reward_bl = reward_argmax
+        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
+            [abs(x - reward_bl) for x in k_reward_qs])
         loss = reward * loss_t
 
         # sta
@@ -622,9 +620,11 @@ class Translator(object):
         self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
         self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
                                 self.optim.training_step)
-        self.writer.add_scalars("train_reward/bleu", {"argmax": metirc_argmax["bleu"], "mean": bleu_mean},
+        self.writer.add_scalars("train_reward/bleu",
+                                {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
                                 self.optim.training_step)
-        self.writer.add_scalars("train_reward/dist", {"argmax": metirc_argmax["dist"], "mean": dist_mean},
+        self.writer.add_scalars("train_reward/dist",
+                                {"argmax": metirc_argmax["dist"], "mean": sum(k_dist) / len(k_dist)},
                                 self.optim.training_step)
         self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss

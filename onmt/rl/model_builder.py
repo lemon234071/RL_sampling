@@ -161,13 +161,30 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     #     nn.ReLU(),
     #     nn.Dropout()
     # )
+
+    class TMEPModel(nn.Module):
+        def __init__(self, generators):
+            super(TMEPModel, self).__init__()
+            self.generators = generators
+
+        def forward(self, inputs):
+            outputs = {}
+            for gen in self.generators:
+                generator = self.__getattr__(gen)
+                outputs[k] = generator(inputs)
+            return outputs
+
     input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
     output_size = 54 if model_opt.sample_method == "topk" else 20
 
-    generators = {}
+    generators = []
     for i, kv in enumerate(model_opt.generators.split(",")):
         k, _ = kv.split(":")
-        generators[k] = nn.Sequential(
+        generators.append(k)
+
+    model = TMEPModel(generators)
+    for k in generators:
+        v = nn.Sequential(
             nn.Linear(input_size,
                       input_size),
             Cast(torch.float32),
@@ -178,19 +195,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             Cast(torch.float32),
             gen_func
         )
-
-    class TMEPModel(nn.Module):
-        def __init__(self, generators):
-            super(TMEPModel, self).__init__()
-            self.generators = generators
-
-        def forward(self, inputs):
-            outputs = {}
-            for k, m in self.generators.items():
-                outputs[k] = m(inputs)
-            return outputs
-
-    model = TMEPModel(generators)
+        setattr(model, k, v)
 
     # Load the model states from checkpoint or initialize them.
     if checkpoint is not None:
@@ -216,9 +221,6 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 if p.dim() > 1:
                     xavier_uniform_(p)
 
-    for k, v in model.generators.items():
-        setattr(model, k, v)
-        # v.to(device)
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()
