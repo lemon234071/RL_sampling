@@ -171,7 +171,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             outputs = {}
             for gen in self.generators:
                 generator = self.__getattr__(gen)
-                outputs[k] = generator(inputs)
+                outputs[gen] = generator(inputs)
             return outputs
 
     input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
