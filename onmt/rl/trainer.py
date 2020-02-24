@@ -541,12 +541,11 @@ class Translator(object):
     def _compute_loss_k(self, log_probs, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
         ts_ids = {}
-        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
-            k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
-                                       device=self._dev) for i in range(self.samples_n)]
-            if low_logits_t is not None:
-                low_k_topk_ids = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
-                                               device=self._dev) for i in range(self.samples_n)]
+
+        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+            for k in log_probs.keys():
+                ts_ids[k] = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
+                                          device=self._dev) for i in range(self.samples_n)]
         else:
 
             for k, logits in log_probs.items():

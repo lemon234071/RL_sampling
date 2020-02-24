@@ -502,6 +502,11 @@ def tri_reddit_json(path, out_dir, n):
     vn_vocab = []
     ord_vocab = []
     itoj = [0, 1, 2, 3]
+    freq_mask = {"1": [False] * 50004, "0": [False] * 50004}
+    freq_mask["1"][:154] = [True] * 154
+    freq_mask["0"][154:] = [True] * (50004 - 154)
+    save_json(freq_mask, out_dir + "freq_mask.json")
+
     tri_mask = {"stop": [False] * 50004, "vn": [False] * 50004, "ord": [False] * 50004}
     tri_mask["stop"][:4] = [True, True, True, True]
     freq_itoj = [0, 1, 2, 3]

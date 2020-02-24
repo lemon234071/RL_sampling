@@ -100,7 +100,7 @@ class ModelSaver(ModelSaverBase):
         model_state_dict = {k: v for k, v in model_state_dict.items()
                             if 'generator' not in k}
         # generator_state_dict = model.generator.state_dict()
-        generators_state_dicts = {k: v.state_dict() for k, v in model.generators.items()}
+        # generators_state_dicts = {k: v.state_dict() for k, v in model.generators.items()}
 
         # NOTE: We need to trim the vocab to remove any unk tokens that
         # were not originally here.
@@ -123,7 +123,7 @@ class ModelSaver(ModelSaverBase):
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }
-        checkpoint.update(generators_state_dicts)
+        #checkpoint.update(generators_state_dicts)
 
         logger.info("Saving checkpoint %s_step_%d.pt" % (self.base_path, step))
         checkpoint_path = '%s_step_%d.pt' % (self.base_path, step)
