@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import codecs
+import collections
 import math
 import os
 import random
@@ -582,7 +583,7 @@ class Translator(object):
             if self.samples_method == "topk":
                 k_reward_qs.append(reward_dict["bleu"])
             else:
-                k_reward_qs.append(reward_dict["bleu"])  # *100 + reward_dict["dist"])
+                k_reward_qs.append(reward_dict["bleu"] * 100 + reward_dict["dist"])
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
@@ -602,7 +603,7 @@ class Translator(object):
         if self.samples_method == "topk":
             reward_argmax = metirc_argmax["bleu"]
         else:
-            reward_argmax = metirc_argmax["bleu"]  # *100 + reward_bl_dict["dist"]
+            reward_argmax = metirc_argmax["bleu"] * 100 + metirc_argmax["dist"]
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward_bl = reward_mean
@@ -612,21 +613,22 @@ class Translator(object):
         loss = reward * loss_t
 
         # sta
-        for k, v in learned_t.items():
-            self.writer.add_scalars(
-                "train_t/{}".format(k),
-                {"t_mean": v.mean(), "mean+stc": v.mean() + v.std(), "mean-stc": v.mean() - v.std()},
-                self.optim.training_step)
-        self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
-        self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
-                                self.optim.training_step)
-        self.writer.add_scalars("train_reward/bleu",
-                                {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
-                                self.optim.training_step)
-        self.writer.add_scalars("train_reward/dist",
-                                {"argmax": metirc_argmax["dist"], "mean": sum(k_dist) / len(k_dist)},
-                                self.optim.training_step)
-        self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
+        if self.optim.training_step % self.report_every == 0:
+            for k, v in learned_t.items():
+                self.writer.add_scalars(
+                    "train_t/{}".format(k),
+                    {"t_mean": v.mean(), "mean+stc": v.mean() + v.std(), "mean-stc": v.mean() - v.std()},
+                    self.optim.training_step)
+            self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
+            self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
+                                    self.optim.training_step)
+            self.writer.add_scalars("train_reward/bleu",
+                                    {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
+                                    self.optim.training_step)
+            self.writer.add_scalars("train_reward/dist",
+                                    {"argmax": metirc_argmax["dist"], "mean": sum(k_dist) / len(k_dist)},
+                                    self.optim.training_step)
+            self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
 
     def tid2t(self, t_ids):
@@ -652,6 +654,8 @@ class Translator(object):
         all_predictions = []
         arg_prediction = []
         golden = []
+        t_all = collections.defaultdict(list)
+        t_arg_all = collections.defaultdict(list)
 
         self.rl_model.eval()
         with torch.no_grad():
@@ -682,6 +686,8 @@ class Translator(object):
                     golden += golden_truth
 
                     loss_total += loss_t
+                    for k in learned_t.keys():
+                        t_all[k].append(learned_t[k])
 
                 # arg
                 learned_t_arg = {}
@@ -694,6 +700,8 @@ class Translator(object):
                 batch_data_arg = self.translate_batch(
                     batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
                     learned_t_arg, sample_method=self.samples_method, sta=self.sta)
+                for k in learned_t_arg.keys():
+                    t_arg_all[k].append(learned_t_arg[k])
                 # translate, so slow
                 if not self.sta:
                     batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
@@ -719,12 +727,14 @@ class Translator(object):
         self.writer.add_scalars("valid_reward/dist",
                                 {"dist": metirc_sample["dist"],
                                  "dist_arg": metirc_argmax["dist"]}, self.optim.training_step)
-        for k, v in learned_t.items():
+        for k, v in t_all.items():
+            v = torch.cat(v)
             self.writer.add_scalars(
                 "valid_t/sample_{}".format(k),
                 {"t_mean": v.mean(), "mean+stc": v.mean() + v.std(), "mean-stc": v.mean() - v.std()},
                 self.optim.training_step)
-        for k, v in learned_t_arg.items():
+        for k, v in t_arg_all.items():
+            v = torch.cat(v)
             self.writer.add_scalars(
                 "valid_t/arg_{}".format(k),
                 {"t_mean": v.mean(), "mean+stc": v.mean() + v.std(), "mean-stc": v.mean() - v.std()},
@@ -972,14 +982,12 @@ class Translator(object):
                     try:
                         k_probs = torch.log_softmax(k_logits / learned_t[k][indices], dim=-1)
                     except:
-                        print(1)
+                        print("11111111111111111111111111111111111111")
                     mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
                     log_probs.masked_scatter_(mask.bool(), k_probs)
-            temp = log_probs.max(1)[0].lt(-100).sum().item()
-            try:
-                assert temp <= 0
-            except:
-                print(1)
+            temp = log_probs.max(1)[0]
+            if torch.isnan(temp).any() or torch.isinf(temp).any():
+                print("222222222222222222222222222222222")
             # else:
             #     logits = self.model.generators["generator"](dec_out.squeeze(0))
             #     log_probs = torch.log_softmax(logits, dim=-1)

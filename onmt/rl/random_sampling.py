@@ -73,9 +73,9 @@ def freq_guide(logits, tag_logits, mask=True):
     #     index = int(0.003 * (logits.shape[-1] - 4)) + 4
     #     logits[high_mask, index:] = -10000
     #     logits[low_mask, : index] = -10000
-        # if False:
-        #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
-        #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
+    # if False:
+    #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
+    #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
     return logits
 
 
@@ -291,7 +291,7 @@ class RandomSampling(DecodeStrategy):
         self.original_batch_idx = torch.arange(self.batch_size,
                                                dtype=torch.long, device=device)
         # yida translate
-        self.learned_t = learned_t
+        self.learned_t = {k: v.clone() for k, v in learned_t.items()}
         self.pos_predictions = [[] for _ in range(batch_size)]
         # self.entropy = [[] for _ in range(batch_size)]
         # self.pos_entropy = [[] for _ in range(batch_size)]
