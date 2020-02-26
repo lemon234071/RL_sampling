@@ -542,7 +542,7 @@ class Translator(object):
                         src_lengths):
         ts_ids = {}
 
-        if random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
+        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
             for k in log_probs.keys():
                 ts_ids[k] = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                           device=self._dev) for i in range(self.samples_n)]

@@ -161,30 +161,13 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     #     nn.ReLU(),
     #     nn.Dropout()
     # )
-
-    class TMEPModel(nn.Module):
-        def __init__(self, generators):
-            super(TMEPModel, self).__init__()
-            self.generators = generators
-
-        def forward(self, inputs):
-            outputs = {}
-            for gen in self.generators:
-                generator = self.__getattr__(gen)
-                outputs[gen] = generator(inputs)
-            return outputs
-
     input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
     output_size = 54 if model_opt.sample_method == "topk" else 20
 
-    generators = []
+    generators = {}
     for i, kv in enumerate(model_opt.generators.split(",")):
         k, _ = kv.split(":")
-        generators.append(k)
-
-    model = TMEPModel(generators)
-    for k in generators:
-        v = nn.Sequential(
+        generators[k] = nn.Sequential(
             nn.Linear(input_size,
                       input_size),
             Cast(torch.float32),
@@ -195,7 +178,19 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             Cast(torch.float32),
             gen_func
         )
-        setattr(model, k, v)
+
+    class TMEPModel(nn.Module):
+        def __init__(self, gens):
+            super(TMEPModel, self).__init__()
+            self.generators = gens
+
+        def forward(self, inputs):
+            outputs = {}
+            for name, gen in self.generators.items():
+                outputs[name] = gen(inputs)
+            return outputs
+
+    model = TMEPModel(generators)
 
     # Load the model states from checkpoint or initialize them.
     if checkpoint is not None:
