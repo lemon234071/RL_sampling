@@ -20,7 +20,7 @@ import onmt.rl.beam
 from onmt.modules.copy_generator import collapse_copy_scores
 from onmt.rl.beam_search import BeamSearch
 # yida RL translate
-from onmt.rl.eval import cal_reward, cal_reward_tokens
+from onmt.rl.eval import cal_reward_tokens
 from onmt.rl.random_sampling import RandomSampling
 from onmt.utils.misc import tile, set_random_seed
 from utils import *
@@ -548,11 +548,13 @@ class Translator(object):
                 ts_ids[k] = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
                                           device=self._dev) for i in range(self.samples_n)]
         else:
-
             for k, logits in log_probs.items():
+                if torch.isnan(logits).any() or torch.isinf(logits).any():
+                    print(2321321)
+                    import pdb
+                    pdb.set_trace()
                 dist = torch.distributions.Multinomial(logits=logits, total_count=1)
                 ts_ids[k] = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
-
         loss_t = torch.tensor([0] * self.samples_n, dtype=torch.float, device=self._dev)
         learned_t = {}
         for k, logits_t in log_probs.items():
@@ -575,11 +577,14 @@ class Translator(object):
                 batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
                 {k: v[i] for k, v in learned_t.items()}, sample_method=self.samples_method
             )
-            # tokens_reward = self.tokens_reward(batch_data, batch)
-            # translate, so slow
-            batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
-            # cal rewards
-            reward_dict = cal_reward(batch_sents, golden_truth)
+            pred_ids, gt_ids = self.tensor2ids(batch_data)
+            # diff unk
+            reward_dict = cal_reward_tokens(pred_ids, gt_ids)
+
+            # # # translate, so slow
+            # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+            # # cal rewards
+            # reward_dict = cal_reward(batch_sents, golden_truth)
             if self.samples_method == "topk":
                 k_reward_qs.append(reward_dict["bleu"])
             else:
@@ -598,8 +603,10 @@ class Translator(object):
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
             argmax_t, sample_method=self.samples_method
         )
-        baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-        metirc_argmax = cal_reward(baseline, golden_truth)
+        arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
+        metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
+        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
+        # metirc_argmax = cal_reward(baseline, golden_truth)
         if self.samples_method == "topk":
             reward_argmax = metirc_argmax["bleu"]
         else:
@@ -609,7 +616,7 @@ class Translator(object):
         reward_bl = reward_mean
         # reward_bl = reward_argmax
         reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
-            [abs(x - reward_bl) for x in k_reward_qs])
+            [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
         loss = reward * loss_t
 
         # sta
@@ -636,17 +643,18 @@ class Translator(object):
         t = (torch.stack(t_ids, 0).float() + 1) / 10
         return t
 
-    def tokens_reward(self, batch_data, batch):
+    def tensor2ids(self, batch_data):
+        batch = batch_data["batch"]
         predictions = []
         for instance in batch_data["predictions"]:
             seq = instance[0].tolist()
-            if seq[-1] == 3:
+            if seq[-1] == self._tgt_eos_idx:
                 seq = seq[:-1]
-            predictions.append([str(x) for x in seq[:-1]])
+            predictions.append([str(x) for x in seq])
         # predictions = [[str(x) for x in instance[0].tolist()] if for instance in batch_data["predictions"]]
         mask = batch.tgt.T.ne(self._tgt_pad_idx)
-        gt_tokens = [[str(x) for x in batch.tgt.T[0, i][mask[0, i]][1:-1].tolist()] for i in range(batch.batch_size)]
-        return cal_reward_tokens(predictions, gt_tokens)
+        gt_tokens = [[[str(x) for x in batch.tgt.T[0, i][mask[0, i]][1:-1].tolist()]] for i in range(batch.batch_size)]
+        return predictions, gt_tokens
 
     def validate(self, valid_iter, data, xlation_builder, infer=False, attn_debug=False):
         loss_total = 0.0
@@ -681,7 +689,8 @@ class Translator(object):
                         batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
                         learned_t, sample_method=self.samples_method
                     )
-                    batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
+                    batch_sents, golden_truth = self.tensor2ids(batch_data)
+                    # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
                     all_predictions += batch_sents
                     golden += golden_truth
 
@@ -704,14 +713,19 @@ class Translator(object):
                     t_arg_all[k].append(learned_t_arg[k])
                 # translate, so slow
                 if not self.sta:
-                    batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
+                    if infer:
+                        batch_sents_arg, _ = self.ids2sents(batch_data_arg, xlation_builder, infer)
+                    else:
+                        batch_sents_arg, _ = self.tensor2ids(batch_data_arg)
                     arg_prediction += batch_sents_arg
-
                 step += 1
         if infer:
             return arg_prediction
-        metirc_argmax = cal_reward(arg_prediction, golden)
-        metirc_sample = cal_reward(all_predictions, golden)
+        # diff unk
+        metirc_argmax = cal_reward_tokens(arg_prediction, golden)
+        metirc_sample = cal_reward_tokens(all_predictions, golden)
+        # metirc_argmax = cal_reward(arg_prediction, golden)
+        # metirc_sample = cal_reward(all_predictions, golden)
         if self.samples_method == "freq":
             reward = metirc_sample["bleu"] * 100 + metirc_sample["dist"]
             reward_arg = metirc_argmax["bleu"] * 100 + metirc_argmax["dist"]
@@ -748,18 +762,6 @@ class Translator(object):
             batch_data,
             xlation_builder,
             infer=False):
-        """
-
-        :param batch_data:
-        :param xlation_builder:
-        :param all_predictions:
-        :param all_entropy:
-        :param all_pos_predictions:
-        :param all_pos_entropy:
-        :param cnt_high:
-        :param cnt_line:
-        :return:
-        """
         batch_predictions = []
         batch_gt = []
         translations = xlation_builder.from_batch(batch_data)
@@ -981,13 +983,18 @@ class Translator(object):
                     k_logits = gen(k_output)
                     try:
                         k_probs = torch.log_softmax(k_logits / learned_t[k][indices], dim=-1)
+                        # k_probs = torch.log_softmax(k_logits, dim=-1)
                     except:
                         print("11111111111111111111111111111111111111")
+                        import pdb;
+                        pdb.set_trace()
                     mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
                     log_probs.masked_scatter_(mask.bool(), k_probs)
             temp = log_probs.max(1)[0]
             if torch.isnan(temp).any() or torch.isinf(temp).any():
                 print("222222222222222222222222222222222")
+                import pdb;
+                pdb.set_trace()
             # else:
             #     logits = self.model.generators["generator"](dec_out.squeeze(0))
             #     log_probs = torch.log_softmax(logits, dim=-1)

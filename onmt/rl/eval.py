@@ -15,8 +15,8 @@ def cal_reward(preds, golden):
     #             golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
     return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
 
+
 def cal_reward_tokens(infer, golden):
-    golden = [[x] for x in golden]
     nltk_bleu = []
     chencherry = SmoothingFunction()
     nltk_bleu.append(round(corpus_bleu(golden, infer, smoothing_function=chencherry.method1), 6))
