@@ -218,6 +218,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 Cast(torch.float32),
                 gen_func
             )
+        for k, v in generators.items():
+            # v.to(device)
+            setattr(model, k, v)
     else:
         tgt_base_field = fields["tgt"].base_field
         vocab_size = len(tgt_base_field.vocab)
@@ -239,8 +242,8 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         # end of patch for backward compatibility
 
         model.load_state_dict(checkpoint['model'], strict=False)
-        for k in generators.keys():
-            generators[k].load_state_dict(checkpoint[k], strict=False)
+        # for k in generators.keys():
+        #     generators[k].load_state_dict(checkpoint[k], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
@@ -273,9 +276,6 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     # model.generator = generator
     # TODO(yida) build model
-    for k, v in generators.items():
-        # v.to(device)
-        setattr(model, k, v)
     model.generators = generators
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':

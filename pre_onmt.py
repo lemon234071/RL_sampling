@@ -304,7 +304,7 @@ def freq_reddit(rootdir, out_dir):
         print(out_dir + "tag-" + name + ".txt")
 
 
-def freq_reddit_json(path, out_dir, high, n):
+def freq_reddit_json(name, path, out_dir, high, n, unk_low=False):
     data = load_json(path)
     if not os.path.exists(out_dir + "vocab.txt"):
         new_data = []
@@ -354,13 +354,21 @@ def freq_reddit_json(path, out_dir, high, n):
             for i, seq in enumerate(dialog):
                 tag_seq = []
                 high_n = 0
-                seq_list = seq.split()
+                seq_list = seq.strip().split()
                 seq_len = len(seq_list)
+                assert seq_len > 0
                 for word in seq_list:
-                    if (word in high_freq) or (word not in vocab):  # for unk
+                    if word in high_freq:
                         tag_seq.append("1")
                         if i != 0:
                             high_n += 1
+                    elif word not in vocab:  # for unk
+                        if not unk_low:
+                            tag_seq.append("1")
+                            if i != 0:
+                                high_n += 1
+                        else:
+                            tag_seq.append("0")
                     else:
                         tag_seq.append("0")
                 if i != 0:  # for eos
@@ -378,14 +386,19 @@ def freq_reddit_json(path, out_dir, high, n):
                         line_n -= 1
             tag_data.append(tag_dialog)
         assert len(v) == len(tag_data)
-        src = [dialog[0] for dialog in v]
-        tgt = [dialog[1] for dialog in v]
-        save_txt("\n".join(src), out_dir + "src-" + k + ".txt")
-        save_txt("\n".join(tgt), out_dir + "tgt-" + k + ".txt")
+        if not os.path.exists(out_dir + "src-" + k + ".txt"):
+            src = [dialog[0] for dialog in v]
+            tgt = [dialog[1] for dialog in v]
+            save_txt("\n".join(src), out_dir + "src-" + k + ".txt")
+            save_txt("\n".join(tgt), out_dir + "tgt-" + k + ".txt")
+        else:
+            print("src exits")
+        print(v[0])
+        print(tag_data[0])
         tag_src = [dialog[0] for dialog in tag_data]
         tag_tgt = [dialog[1] for dialog in tag_data]
-        save_txt("\n".join(tag_src), out_dir + "freq-src-" + k + ".txt")
-        save_txt("\n".join(tag_tgt), out_dir + "freq-tgt-" + k + ".txt")
+        save_txt("\n".join(tag_src), out_dir + name + "-src-" + k + ".txt")
+        save_txt("\n".join(tag_tgt), out_dir + name + "-tgt-" + k + ".txt")
     print(line_n)
     print(rate_all / line_n)
 
@@ -623,7 +636,9 @@ def main():
     # freq_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
     # cnt_vocab("data_raw/reddit_small_single.json", "data_reddit_small/", 0.001, 50000)
 
-    tri_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 50000)
+    # tri_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 50000)
+
+    freq_reddit_json("freq2", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
     print(1)
 
 
