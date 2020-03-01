@@ -406,11 +406,17 @@ class NMTLossCompute(LossComputeBase):
         if not self.sta:
             return
         k_log_prob = k_scores.gather(-1, k_gtruth.unsqueeze(-1))
+        k_rank = k_scores.ge(k_log_prob).sum(-1).float()
         k_prob = torch.exp(k_log_prob)
         k_argmax_scores, high_argmax_ids = k_scores.max(1)
         arg_k = torch.exp(k_argmax_scores)
-        self.writer.add_scalars("sta_probs/{}".format(k),
+        self.writer.add_scalars("sta_probs/probs_{}".format(k),
                                 {"{}_prob".format(k): k_prob.mean(), "arg_{}".format(k): arg_k.mean()}, self.step)
+        self.writer.add_scalars("sta_probs/rank_{}".format(k),
+                                {"rank_mean".format(k): k_rank.mean(),
+                                 "mean+std".format(k): k_rank.mean() + k_rank.std(),
+                                 "mean-std".format(k): k_rank.mean() - k_rank.std()},
+                                self.step)
 
 
 def filter_shard_state(state, shard_size=None):

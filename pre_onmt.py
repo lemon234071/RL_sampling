@@ -466,6 +466,7 @@ def cnt_vocab(path, out_dir, high, n):
 
 def tri_reddit_json(path, out_dir, n):
     data = load_json(path)
+    print(len(data))
     if not os.path.exists(out_dir + "vocab.txt"):
         new_data = []
         vocab = collections.Counter()
@@ -498,6 +499,14 @@ def tri_reddit_json(path, out_dir, n):
     set_vn = set()
     set_ord = set()
 
+    extra_stop = [("'m", 50, 'VBP'), ("'re", 61, 'VBP'), ("'ve", 89, 'VBP'), ("'d", 99, 'VBN'), ('.', 0, '.'),
+                  (',', 2, ','), ('?', 7, '.'), ("'s", 13, 'POS'), ("n't", 15, 'RB'), ('!', 17, '.'),
+                  ('...', 20, ':'), ('would', 36, 'MD'), (':', 58, ':'), ("'", 62, 'POS'), ('could', 84, 'MD'),
+                  ("'ll", 101, 'MD'), ('us', 107, 'PRP'), ('ca', 106, 'MD'), ('yes', 117, 'UH'), ("'ve", 89, 'VBP'),
+                  ('..', 160, 'NN'), ('can', 47), ('should', 76), ('could', 84), ("'ll", 101), ('ca', 106),
+                  ('might', 193), ('must', 224), ('may', 270)]
+
+    extra_stop = set([x[0] for x in extra_stop])
     stopwords_vocab = []
     vn_vocab = []
     ord_vocab = []
@@ -511,23 +520,33 @@ def tri_reddit_json(path, out_dir, n):
     tri_mask["stop"][:4] = [True, True, True, True]
     freq_itoj = [0, 1, 2, 3]
 
+    # temp_md = []
+    # temp_sym= []
+    # temp_prp = []
     for i, (word, pos) in enumerate(vocab_pos):
         if i < 150:
             freq_itoj.append(i + 4)
+            # set_stopwords.add(word)
         else:
             freq_itoj.append(i - 150)
-        if word in set_stopwords:
+        if word in set_stopwords or word in extra_stop:
             itoj.append(len(stopwords_vocab) + 4)
-            stopwords_vocab.append((word, i))
+            stopwords_vocab.append((word, i, pos))
             tri_mask["stop"][i + 4] = True
         elif "V" in pos or "N" in pos:
             itoj.append(len(vn_vocab))
-            vn_vocab.append((word, i))
+            vn_vocab.append((word, i, pos))
             set_vn.add(word)
             tri_mask["vn"][i + 4] = True
         else:
+            # if pos == "MD":
+            #     temp_md.append((word, i))
+            # if pos == ".":
+            #     temp_sym.append((word, i))
+            # if pos == "PRP":
+            #     temp_prp.append((word, i))
             itoj.append(len(ord_vocab))
-            ord_vocab.append((word, i))
+            ord_vocab.append((word, i, pos))
             set_ord.add(word)
             tri_mask["ord"][i + 4] = True
     print(len(stopwords_vocab), "stop")
@@ -537,9 +556,9 @@ def tri_reddit_json(path, out_dir, n):
     save_json(freq_itoj, out_dir + "freq_itoj.json")
     save_json(tri_mask, out_dir + "tri_mask.json")
     save_json(itoj, out_dir + "tri_itoj.json")
-    save_json(stopwords_vocab, out_dir + "stop_vocab.json")
-    save_json(vn_vocab, out_dir + "vn_vocab.json")
-    save_json(ord_vocab, out_dir + "or_vocab.json")
+    save_json([x[:-1] for x in stopwords_vocab], out_dir + "stop_vocab.json")
+    save_json([x[:-1] for x in vn_vocab], out_dir + "vn_vocab.json")
+    save_json([x[:-1] for x in ord_vocab], out_dir + "or_vocab.json")
 
     random.shuffle(data)
 
