@@ -588,8 +588,8 @@ class Translator(object):
             if self.samples_method == "topk":
                 reward_sample = reward_dict["bleu"]
             else:
-                # reward_sample = reward_dict["bleu"] + reward_dict["dist"]
-                reward_sample = reward_dict["bleu"] - reward_dict["diff_dist"]
+                reward_sample = reward_dict["bleu"] + reward_dict["dist"]
+                # reward_sample = reward_dict["bleu"] - reward_dict["diff_dist"]
             k_reward_qs.append(reward_sample)
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
@@ -603,7 +603,7 @@ class Translator(object):
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-            argmax_t, sample_method="greedy"
+            argmax_t, sample_method=self.samples_method
         )
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
         metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
@@ -612,8 +612,8 @@ class Translator(object):
         if self.samples_method == "topk":
             reward_argmax = metirc_argmax["bleu"]
         else:
-            # reward_argmax = metirc_argmax["bleu"] + metirc_argmax["dist"]
-            reward_argmax = metirc_argmax["bleu"] - metirc_argmax["diff_dist"]
+            reward_argmax = metirc_argmax["bleu"] + metirc_argmax["dist"]
+            # reward_argmax = metirc_argmax["bleu"] - metirc_argmax["diff_dist"]
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward_bl = reward_mean
