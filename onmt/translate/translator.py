@@ -676,6 +676,9 @@ class Translator(object):
                 tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
                 tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
                 tag_argmax = tag_log_probs.max(1)[1]
+                # dist = torch.distributions.Multinomial(logits=tag_log_probs, total_count=1)
+                # tag_argmax = torch.argmax(dist.sample(), dim=1)
+                # tag_index = torch.multinomial(tag_log_probs, num_samples=1)
 
                 log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
                                        dtype=torch.float, device=self._dev)

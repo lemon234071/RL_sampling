@@ -332,10 +332,18 @@ def freq_reddit_json(name, path, out_dir, high, n, unk_low=False):
         vocab = load_txt(out_dir + "vocab.txt")
     print(len(vocab), "vocab")
     high_freq = set([x for x in vocab[:int(high * len(vocab))]])
-    vocab = set([x for x in vocab])
     print(len(high_freq), "len high")
     # save_txt("\n".join(list(high_freq)), rootdir+"high_freq.txt")
+    freq_itoj = [0, 0, 1, 2]
+    for i, word in enumerate(vocab):
+        if i < 150:
+            freq_itoj.append(i + 3)
+            # set_stopwords.add(word)
+        else:
+            freq_itoj.append(i - 150 + 1)
+    save_json(freq_itoj, out_dir + "freq_itoj.json")
 
+    vocab = set([x for x in vocab])
     random.shuffle(data)
 
     test = data[-10000:]
@@ -580,6 +588,9 @@ def tri_reddit_json(path, out_dir, n):
     train = data[:-20000]
 
     set_vocab = set(vocab)
+    set_stop = set([x[0] for x in stopwords_vocab])
+    set_vn = set([x[0] for x in vn_vocab])
+
     dataset = {"train": train, "valid": valid, "test": test}
     for k, v in dataset.items():
         print(k)
@@ -592,7 +603,7 @@ def tri_reddit_json(path, out_dir, n):
                 assert len(seq_list) > 0
                 tag_seq = []
                 for word in seq_list:
-                    if (word in set_stopwords) or (word not in set_vocab):  # for unk
+                    if (word in set_stop) or (word not in set_vocab):  # for unk
                         tag_seq.append("stop")
                     elif word in set_vn:
                         tag_seq.append("vn")
@@ -620,6 +631,106 @@ def tri_reddit_json(path, out_dir, n):
         save_txt("\n".join(tag_tgt), out_dir + "tri-tgt-" + k + ".txt")
 
 
+def fri_reddit_json(name, path, out_dir, n):
+    data = load_json(path)
+    print(len(data))
+    if not os.path.exists(out_dir + "vocab.txt"):
+        new_data = []
+        vocab = collections.Counter()
+        for dialog in tqdm(data):
+            try:
+                for seq in dialog:
+                    assert len(seq) > 0
+            except:
+                continue
+            new_dialog = []
+            for seq in dialog:
+                seq = seq.strip().lower()
+                seq_list = nltk.word_tokenize(seq)
+                new_dialog.append(" ".join(seq_list))
+                vocab.update(seq_list)
+            new_data.append(new_dialog)
+        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)[:n]
+        print(len(vocab), "len vocab")
+        vocab = [x[0] for x in vocab]
+        save_txt("\n".join(vocab), out_dir + "vocab.txt")
+        save_json(new_data, path)
+        data = new_data
+    else:
+        vocab = load_txt(out_dir + "vocab.txt")
+    print(len(vocab), "vocab")
+
+    # tagging
+
+    freq_mask = {"high": [False] * 50004, "mid": [False] * 50004, "low": [False] * 50004}
+    freq_mask["high"][:40] = [True] * 40
+    freq_mask["mid"][40:200] = [True] * (200 - 40)
+    freq_mask["low"][200:] = [True] * (50004 - 200)
+    save_json(freq_mask, out_dir + name + "_mask.json")
+
+    freq_itoj = [0, 1, 2, 3]
+
+    for i, word in enumerate(vocab):
+        if i < 36:
+            freq_itoj.append(i + 4)
+            # set_stopwords.add(word)
+        elif i < 200:
+            freq_itoj.append(i - 36)
+        else:
+            freq_itoj.append(i - 200)
+
+    save_json(freq_itoj, out_dir + name + "_itoj.json")
+
+    random.shuffle(data)
+
+    test = data[-10000:]
+    valid = data[-20000:-10000]
+    train = data[:-20000]
+
+    set_high = set(vocab[:16])
+    set_mid = set(vocab[16:200])
+    set_vocab = set(vocab)
+
+
+    dataset = {"train": train, "valid": valid, "test": test}
+    for k, v in dataset.items():
+        print(k)
+        tag_data = []
+        for dialog in tqdm(v, mininterval=1):
+            tag_dialog = []
+            for i, seq in enumerate(dialog):
+                seq_list = seq.strip().split()
+                assert len(seq_list) > 0
+                tag_seq = []
+                for word in seq_list:
+                    if (word in set_high) or (word not in set_vocab):  # for unk
+                        tag_seq.append("high")
+                    elif word in set_mid:
+                        tag_seq.append("mid")
+                    else:
+                        tag_seq.append("low")
+
+                if i != 0:  # for eos
+                    tag_seq.append("high")
+                tag_dialog.append(" ".join(tag_seq))
+            tag_data.append(tag_dialog)
+
+        assert len(v) == len(tag_data)
+        if not os.path.exists(out_dir + "src-" + k + ".txt"):
+            src = [dialog[0] for dialog in v]
+            tgt = [dialog[1] for dialog in v]
+            save_txt("\n".join(src), out_dir + "src-" + k + ".txt")
+            save_txt("\n".join(tgt), out_dir + "tgt-" + k + ".txt")
+        else:
+            print("src exits")
+        print(v[0])
+        print(tag_data[0])
+        tag_src = [dialog[0] for dialog in tag_data]
+        tag_tgt = [dialog[1] for dialog in tag_data]
+        save_txt("\n".join(tag_src), out_dir + name + "-src-" + k + ".txt")
+        save_txt("\n".join(tag_tgt), out_dir + name + "-tgt-" + k + ".txt")
+
+
 def main():
     # onmt_Daily("./train/dialogues_train.txt", "./onmt_data/", True)
     # onmt_Daily("./validation/dialogues_validation.txt", "./onmt_data/")
@@ -638,7 +749,8 @@ def main():
 
     # tri_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 50000)
 
-    freq_reddit_json("freq2", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
+    # freq_reddit_json("freq2", "data_raw/reddit_small_single.json", "data_reddit_small2/", 0.003, 50000, unk_low=True)
+    fri_reddit_json("fri", "data_raw/reddit_small_single.json", "data_reddit_fri/", 50000)
     print(1)
 
 

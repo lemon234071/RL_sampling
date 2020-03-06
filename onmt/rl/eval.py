@@ -19,14 +19,23 @@ def cal_reward(preds, golden):
 def cal_reward_tokens(infer, golden):
     nltk_bleu = []
     chencherry = SmoothingFunction()
-    nltk_bleu.append(round(corpus_bleu(golden, infer, smoothing_function=chencherry.method1), 6))
-    dist1, dist2 = eval_distinct(infer)
+    nltk_bleu.append(corpus_bleu(golden, infer, smoothing_function=chencherry.method1))
+    bleu = round(nltk_bleu[0] * 100, 6)
+    dist1, dist2 = [round(x, 6) for x in eval_distinct(infer)]
+
     # for i in range(4):
     #     weights = [1 / (i + 1)] * (i + 1)
     #     nltk_bleu.append(
     #         round(corpus_bleu(
     #             golden, infer, weights=weights, smoothing_function=chencherry.method1), 6))
-    return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
+
+    # reward = round(nltk_bleu[0] * 100, 6) + round(dist2, 6)
+    # a tempt
+    gt_dist1, gt_dist2 = [round(x, 6) for x in eval_distinct([x[0] for x in golden])]
+    diff_dist1 = abs(dist1 - gt_dist1)
+    diff_dist2 = abs(dist2 - gt_dist2)
+    # reward = round(nltk_bleu[0] * 100, 6) - round(diff_dist1 + diff_dist2, 6)
+    return {"bleu": bleu, "dist": dist2, "diff_dist": diff_dist1 + diff_dist2}
 
 
 def eval_distinct(hyps_resp):

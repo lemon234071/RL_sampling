@@ -491,7 +491,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -586,9 +586,11 @@ class Translator(object):
             # # cal rewards
             # reward_dict = cal_reward(batch_sents, golden_truth)
             if self.samples_method == "topk":
-                k_reward_qs.append(reward_dict["bleu"])
+                reward_sample = reward_dict["bleu"]
             else:
-                k_reward_qs.append(reward_dict["bleu"] * 100 + reward_dict["dist"])
+                # reward_sample = reward_dict["bleu"] + reward_dict["dist"]
+                reward_sample = reward_dict["bleu"] - reward_dict["diff_dist"]
+            k_reward_qs.append(reward_sample)
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
 
@@ -601,7 +603,7 @@ class Translator(object):
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-            argmax_t, sample_method=self.samples_method
+            argmax_t, sample_method="greedy"
         )
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
         metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
@@ -610,7 +612,8 @@ class Translator(object):
         if self.samples_method == "topk":
             reward_argmax = metirc_argmax["bleu"]
         else:
-            reward_argmax = metirc_argmax["bleu"] * 100 + metirc_argmax["dist"]
+            # reward_argmax = metirc_argmax["bleu"] + metirc_argmax["dist"]
+            reward_argmax = metirc_argmax["bleu"] - metirc_argmax["diff_dist"]
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward_bl = reward_mean
@@ -983,7 +986,7 @@ class Translator(object):
                     k_logits = gen(k_output)
                     try:
                         k_probs = torch.log_softmax(k_logits / learned_t[k][indices], dim=-1)
-                        # k_probs = torch.log_softmax(k_logits, dim=-1)
+                        #k_probs = torch.log_softmax(k_logits, dim=-1)
                     except:
                         print("11111111111111111111111111111111111111")
                         import pdb;
