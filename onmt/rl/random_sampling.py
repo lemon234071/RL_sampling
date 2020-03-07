@@ -24,11 +24,12 @@ def get_topp(logits, top_p):
     # samp_logits = samp_probs.log()
 
     # testa = samp_probs.gt(0).sum(1)
+    num_topp_left = sorted_samp_probs.gt(0).sum(1)
     sorted_next_indices = sorted_samp_probs.multinomial(1).view(-1, 1)
     next_tokens = sorted_indices.gather(1, sorted_next_indices)
     next_logprobs = sorted_samp_probs.gather(1, sorted_next_indices).log()
     # return samp_logits, None
-    return next_logprobs, next_tokens
+    return next_logprobs, next_tokens, num_topp_left
 
 
 def entropy_guide(pos_entropy):
@@ -169,7 +170,7 @@ def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     elif sample_method == "topp":
-        topk_scores, topk_ids = get_topp(logits, top_p=0.9)
+        topk_scores, topk_ids, num_topp_left = get_topp(logits, top_p=0.9)
     else:
         if sample_method == "random":
             logits = logits
@@ -189,7 +190,7 @@ def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
             logits=logits, total_count=1)
         topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
         topk_scores = logits.gather(dim=1, index=topk_ids)
-    return topk_ids, topk_scores
+    return topk_ids, topk_scores, num_topp_left
 
 
 def sample_with_temperature(logits, sampling_temp, keep_topk):
@@ -330,11 +331,12 @@ class RandomSampling(DecodeStrategy):
             self.pos_alive_seq = torch.cat([self.pos_alive_seq, topk_pos_ids], -1)
 
         # yida translate
-        topk_ids, self.topk_scores = \
+        topk_ids, self.topk_scores, num_topp_left = \
             sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method)
 
         self.is_finished = topk_ids.eq(self.eos)
 
+        self.num_topp_left = num_topp_left
         self.alive_seq = torch.cat([self.alive_seq, topk_ids], -1)
         if self.return_attention:
             if self.alive_attn is None:

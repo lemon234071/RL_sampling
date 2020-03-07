@@ -845,7 +845,7 @@ class Translator(object):
             t_in = random_sampler.learned_t
 
             # yida translate
-            log_probs, attn, pos_log_probs = self._decode_and_generate(
+            log_probs, attn, pos_log_probs, pass_indices = self._decode_and_generate(
                 decoder_input,
                 memory_bank,
                 # yida tranlate
@@ -862,6 +862,18 @@ class Translator(object):
 
             # yida tranlate
             random_sampler.advance(log_probs, attn, pos_log_probs, sta)
+
+            for k, v in pass_indices.items():
+                k_left = random_sampler.num_topp_left[v].float()
+                if k_left.shape[0] > 0:
+                    temp_std = k_left.std() if k_left.shape[0] > 1 else 0
+                    self.writer.add_scalars(
+                        "{}_topp_left/position_{}".format(k, step),
+                        {"mean": k_left.mean(),
+                         "mean+std": k_left.mean() + temp_std,
+                         "mean-std": k_left.mean() - temp_std},
+                        self.optim.training_step)
+
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
                 random_sampler.update_finished()
@@ -977,16 +989,18 @@ class Translator(object):
 
             log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
                                    dtype=torch.float, device=self._dev)
+            pass_indices = {}
             for k, gen in self.model.generators.items():
                 if k == "tag":
                     continue
                 indices = tag_argmax.eq(self.tag_vocab[k])
+                pass_indices[k] = indices
                 if indices.any():
                     k_output = dec_out.squeeze(0)[indices]
                     k_logits = gen(k_output)
                     try:
                         k_probs = torch.log_softmax(k_logits / learned_t[k][indices], dim=-1)
-                        #k_probs = torch.log_softmax(k_logits, dim=-1)
+                        # k_probs = torch.log_softmax(k_logits, dim=-1)
                     except:
                         print("11111111111111111111111111111111111111")
                         import pdb;
@@ -1027,7 +1041,7 @@ class Translator(object):
             # returns [(batch_size x beam_size) , vocab ] when 1 step
             # or [ tgt_len, batch_size, vocab ] when full sentence
         # yida translate
-        return log_probs, attn, tag_log_probs
+        return log_probs, attn, tag_log_probs, pass_indices
 
     def _translate_batch(
             self,
