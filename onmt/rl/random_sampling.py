@@ -5,10 +5,10 @@ from onmt.translate.decode_strategy import DecodeStrategy
 
 # yida translate
 def get_topp(logits, top_p):
-    import torch.nn.functional as F
+    probs = logits.exp()
     # Compute cumulative probabilities of sorted tokens
-    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-    cumulative_probabilities = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+    cumulative_probabilities = torch.cumsum(sorted_probs, dim=-1)
 
     # Remove tokens with cumulative probability above the threshold
     sorted_indices_to_remove = cumulative_probabilities > top_p
@@ -16,18 +16,19 @@ def get_topp(logits, top_p):
     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
     sorted_indices_to_remove[..., 0] = 0
 
-    # Back to unsorted indices and set them to -infinity
-    batch_pos_mask = torch.full(logits.shape, True).cuda()
-    for i in range(logits.shape[0]):
-        indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
+    sorted_samp_probs = sorted_probs.clone()
+    sorted_samp_probs[sorted_indices_to_remove] = 0
+    ###
+    # samp_probs = probs.clone()
+    # samp_probs.scatter_(1, sorted_indices, sorted_samp_probs)
+    # samp_logits = samp_probs.log()
 
-        logits[i][indices_to_remove] = -float('Inf')
-        batch_pos_mask[i][indices_to_remove] = False
-
-    # indices_to_remove = torch.gather(sorted_indices, -1, sorted_indices_to_remove.long())
-    # logits.masked_fill_(indices_to_remove, -float('Inf'))
-    # indices_saved = torch.gather(sorted_indices, -1, ~sorted_indices_to_remove.long())
-    return logits, batch_pos_mask
+    # testa = samp_probs.gt(0).sum(1)
+    sorted_next_indices = sorted_samp_probs.multinomial(1).view(-1, 1)
+    next_tokens = sorted_indices.gather(1, sorted_next_indices)
+    next_logprobs = sorted_samp_probs.gather(1, sorted_next_indices).log()
+    # return samp_logits, None
+    return next_logprobs, next_tokens
 
 
 def entropy_guide(pos_entropy):
@@ -167,11 +168,11 @@ def topk_guide(logits, pos_logits, learned_k):
 def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
+    elif sample_method == "topp":
+        topk_scores, topk_ids = get_topp(logits, top_p=0.9)
     else:
         if sample_method == "random":
             logits = logits
-        # logits, _ = get_topp(logits, top_p=0.9)
-        # logits /= 1
 
         # entropy
         # logits = pos_guide(logits, pos_logits)

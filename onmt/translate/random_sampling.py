@@ -1,11 +1,48 @@
 import torch
+import torch.nn.functional as F
 
 from onmt.translate.decode_strategy import DecodeStrategy
 
 
-# yida translate
 def get_topp(logits, top_p):
-    import torch.nn.functional as F
+    probs = logits.exp()
+    # Compute cumulative probabilities of sorted tokens
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+    cumulative_probabilities = torch.cumsum(sorted_probs, dim=-1)
+
+    # Remove tokens with cumulative probability above the threshold
+    sorted_indices_to_remove = cumulative_probabilities > top_p
+    # Shift the indices to the right to keep also the first token above the threshold
+    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    sorted_indices_to_remove[..., 0] = 0
+
+    sorted_samp_probs = sorted_probs.clone()
+    sorted_samp_probs[sorted_indices_to_remove] = 0
+    ###
+    samp_probs = probs.clone()
+    samp_probs.scatter_(1, sorted_indices, sorted_samp_probs)
+    samp_logits = samp_probs.log()
+
+    # testa = samp_probs.gt(0).sum(1)
+    # sorted_next_indices = sorted_samp_probs.multinomial(1).view(-1, 1)
+    # next_tokens = sorted_indices.gather(1, sorted_next_indices)
+    # next_logprobs = sorted_samp_probs.gather(1, sorted_next_indices).log()
+
+    # Back to unsorted indices and set them to -infinity
+    # temp_logits = logits.clone()
+    # temp_probs = probs.clone()
+    # for i in range(logits.shape[0]):
+    #     indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
+    #     temp_probs[i][indices_to_remove] = 0
+    #     temp_logits[i][indices_to_remove] = -float('Inf')
+    # return logits, None
+    return samp_logits, None
+    # return next_logprobs, next_tokens
+
+
+# yida translate
+def get_topp1(logits, top_p):
+    #probs = logits.exp()
     # Compute cumulative probabilities of sorted tokens
     sorted_logits, sorted_indices = torch.sort(logits, descending=True)
     cumulative_probabilities = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
@@ -16,18 +53,23 @@ def get_topp(logits, top_p):
     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
     sorted_indices_to_remove[..., 0] = 0
 
+    sorted_samp_logits = sorted_logits.clone()
+    sorted_samp_logits[sorted_indices_to_remove] = -float('Inf')
+    ###
+    samp_logits = logits.clone()
+    samp_logits.scatter_(1, sorted_indices, sorted_samp_logits)
+
+    # sorted_next_indices = sorted_samp_probs.multinomial(1).view(-1, 1)
+    # next_tokens = sorted_indices.gather(1, sorted_next_indices)
+    # next_logprobs = sorted_samp_probs.gather(1, sorted_next_indices).log()
+
     # Back to unsorted indices and set them to -infinity
-    batch_pos_mask = torch.full(logits.shape, True).cuda()
+    temp_logits = logits.clone()
     for i in range(logits.shape[0]):
         indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
-
-        logits[i][indices_to_remove] = -float('Inf')
-        batch_pos_mask[i][indices_to_remove] = False
-
-    # indices_to_remove = torch.gather(sorted_indices, -1, sorted_indices_to_remove.long())
-    # logits.masked_fill_(indices_to_remove, -float('Inf'))
-    # indices_saved = torch.gather(sorted_indices, -1, ~sorted_indices_to_remove.long())
-    return logits, batch_pos_mask
+        temp_logits[i][indices_to_remove] = -float('Inf')
+    # return logits, None
+    return temp_logits, None
 
 
 def entropy_guide(pos_entropy):
@@ -127,6 +169,8 @@ def freq_guide_stopwords(logits, pos_logits, mask=True):
 def sample_with_dynamic_temperature(logits, tag_logits, sample_method="greedy"):
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
+    # elif sample_method == "topp":
+    #     topk_scores, topk_ids = get_topp(logits, top_p=0.9)
     else:
         if sample_method == "random":
             logits = logits
