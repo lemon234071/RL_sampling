@@ -46,6 +46,12 @@ def build_loss_compute(model, fields, opt, train=True):
     # else:
     #     criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
     criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
+    if opt.label_smoothing > 0 and train:
+        criterion2 = LabelSmoothingLoss(
+            opt.label_smoothing, 49850, ignore_index=padding_idx
+        )
+    else:
+        criterion2 = None
 
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
@@ -57,15 +63,19 @@ def build_loss_compute(model, fields, opt, train=True):
     loss_gen = None
 
     tag_field = dict(fields)["pos_tgt"].base_field
-    if opt.copy_attn:
-        compute = onmt.modules.CopyGeneratorLossCompute(
-            criterion, loss_gen, tgt_field.vocab, opt.copy_loss_by_seqlength,
-            lambda_coverage=opt.lambda_coverage
-        )
-    else:
-        compute = NMTLossCompute(criterion, loss_gen, model.generators, opt.itoj,
-                                 opt.statistic, tag_field.vocab.stoi, device, train=train,
-                                 lambda_coverage=opt.lambda_coverage)
+    compute = NMTLossCompute(criterion, loss_gen,
+                             criterion2, model.generators, opt.itoj,
+                             opt.statistic, tag_field.vocab.stoi, device, train=train,
+                             lambda_coverage=opt.lambda_coverage)
+    # if opt.copy_attn:
+    #     compute = onmt.modules.CopyGeneratorLossCompute(
+    #         criterion, loss_gen, tgt_field.vocab, opt.copy_loss_by_seqlength,
+    #         lambda_coverage=opt.lambda_coverage
+    #     )
+    # else:
+    #     compute = NMTLossCompute(criterion, loss_gen, model.generators, opt.itoj,
+    #                              opt.statistic, tag_field.vocab.stoi, device, train=train,
+    #                              lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -242,7 +252,7 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, generators, itoj_path, sta, tag_vocab,
+    def __init__(self, criterion, generator, criterion2, generators, itoj_path, sta, tag_vocab,
                  device,
                  train=False,
                  normalization="sents",
@@ -251,6 +261,7 @@ class NMTLossCompute(LossComputeBase):
         self.lambda_coverage = lambda_coverage
         self.generator = generator
 
+        self.criterion2 = criterion2
         self.generators = generators
         self.itoj = load_json(itoj_path)
         self.tag_vocab = tag_vocab
@@ -328,7 +339,10 @@ class NMTLossCompute(LossComputeBase):
                     k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth], dtype=torch.long, device=self.device)
                     k_logits = gen(k_output)
                     k_scores = k_logits.log_softmax(dim=-1)
-                    loss_dict["loss"] += self.criterion(k_scores, k_gtruth)
+                    if k == "0" and self.criterion2 is not None:
+                        loss_dict["loss"] += self.criterion2(k_scores, k_gtruth)
+                    else:
+                        loss_dict["loss"] += self.criterion(k_scores, k_gtruth)
                     self._multi_sta(k, k_scores, k_gtruth)
                 # temp
             scores = bottled_output

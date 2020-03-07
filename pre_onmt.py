@@ -664,8 +664,8 @@ def fri_reddit_json(name, path, out_dir, n):
 
     freq_mask = {"high": [False] * 50004, "mid": [False] * 50004, "low": [False] * 50004}
     freq_mask["high"][:40] = [True] * 40
-    freq_mask["mid"][40:200] = [True] * (200 - 40)
-    freq_mask["low"][200:] = [True] * (50004 - 200)
+    freq_mask["mid"][40:204] = [True] * (204 - 40)
+    freq_mask["low"][204:] = [True] * (50004 - 204)
     save_json(freq_mask, out_dir + name + "_mask.json")
 
     freq_itoj = [0, 1, 2, 3]
