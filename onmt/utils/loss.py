@@ -45,13 +45,18 @@ def build_loss_compute(model, fields, opt, train=True):
     #     criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
     # else:
     #     criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
+
     criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
-    if opt.label_smoothing > 0 and train:
-        criterion2 = LabelSmoothingLoss(
-            opt.label_smoothing, 49850, ignore_index=padding_idx
-        )
-    else:
-        criterion2 = None
+    criterions = {}
+    ls_gen = opt.ls_gen.split(",")
+    for k in model.generators.keys():
+        if k in ls_gen and opt.label_smoothing > 0 and train:
+            criterions[k] = LabelSmoothingLoss(
+                opt.label_smoothing, model.generators[k]._modules["0"].out_features, ignore_index=padding_idx
+            )
+        else:
+            criterions[k] = criterion
+        criterions[k].to(device)
 
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
@@ -64,7 +69,7 @@ def build_loss_compute(model, fields, opt, train=True):
 
     tag_field = dict(fields)["pos_tgt"].base_field
     compute = NMTLossCompute(criterion, loss_gen,
-                             criterion2, model.generators, opt.itoj,
+                             criterions, model.generators, opt.itoj,
                              opt.statistic, tag_field.vocab.stoi, device, train=train,
                              lambda_coverage=opt.lambda_coverage)
     # if opt.copy_attn:
@@ -252,7 +257,8 @@ class NMTLossCompute(LossComputeBase):
     """
 
     # TODO(yida) loss
-    def __init__(self, criterion, generator, criterion2, generators, itoj_path, sta, tag_vocab,
+    def __init__(self, criterion, generator,
+                 criterions, generators, itoj_path, sta, tag_vocab,
                  device,
                  train=False,
                  normalization="sents",
@@ -261,7 +267,7 @@ class NMTLossCompute(LossComputeBase):
         self.lambda_coverage = lambda_coverage
         self.generator = generator
 
-        self.criterion2 = criterion2
+        self.criterions = criterions
         self.generators = generators
         self.itoj = load_json(itoj_path)
         self.tag_vocab = tag_vocab
@@ -318,7 +324,7 @@ class NMTLossCompute(LossComputeBase):
             tag_bottled_output = self._bottle(tag_output)
             tag_scores = self.generators["tag"](tag_bottled_output)
             tag_gtruth = tag_target.view(-1)
-            loss_dict["tag_loss"] = self.criterion(tag_scores, tag_gtruth)
+            loss_dict["tag_loss"] = self.criterions["tag"](tag_scores, tag_gtruth)
             # sta
             tag_pred_indices = tag_scores.max(1)[1]
             tag_non_padding = tag_gtruth.ne(self.padding_idx)
@@ -339,10 +345,7 @@ class NMTLossCompute(LossComputeBase):
                     k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth], dtype=torch.long, device=self.device)
                     k_logits = gen(k_output)
                     k_scores = k_logits.log_softmax(dim=-1)
-                    if k == "0" and self.criterion2 is not None:
-                        loss_dict["loss"] += self.criterion2(k_scores, k_gtruth)
-                    else:
-                        loss_dict["loss"] += self.criterion(k_scores, k_gtruth)
+                    loss_dict["loss"] += self.criterions[k](k_scores, k_gtruth)
                     self._multi_sta(k, k_scores, k_gtruth)
                 # temp
             scores = bottled_output
