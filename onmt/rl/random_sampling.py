@@ -24,7 +24,8 @@ def get_topp(logits, top_p):
     # samp_logits = samp_probs.log()
 
     # testa = samp_probs.gt(0).sum(1)
-    num_topp_left = sorted_samp_probs.gt(0).sum(1)
+    # num_topp_left = sorted_samp_probs.gt(0).sum(1)
+    num_topp_left = None
     sorted_next_indices = sorted_samp_probs.multinomial(1).view(-1, 1)
     next_tokens = sorted_indices.gather(1, sorted_next_indices)
     next_logprobs = sorted_samp_probs.gather(1, sorted_next_indices).log()

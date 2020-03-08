@@ -863,16 +863,16 @@ class Translator(object):
             # yida tranlate
             random_sampler.advance(log_probs, attn, pos_log_probs, sta)
 
-            for k, v in pass_indices.items():
-                k_left = random_sampler.num_topp_left[v].float()
-                if k_left.shape[0] > 0:
-                    temp_std = k_left.std() if k_left.shape[0] > 1 else 0
-                    self.writer.add_scalars(
-                        "{}_topp_left/position_{}".format(k, step),
-                        {"mean": k_left.mean(),
-                         "mean+std": k_left.mean() + temp_std,
-                         "mean-std": k_left.mean() - temp_std},
-                        self.optim.training_step)
+            # for k, v in pass_indices.items():
+            #     k_left = random_sampler.num_topp_left[v].float()
+            #     if k_left.shape[0] > 0:
+            #         temp_std = k_left.std() if k_left.shape[0] > 1 else 0
+            #         self.writer.add_scalars(
+            #             "{}_topp_left/position_{}".format(k, step),
+            #             {"mean": k_left.mean(),
+            #              "mean+std": k_left.mean() + temp_std,
+            #              "mean-std": k_left.mean() - temp_std},
+            #             self.optim.training_step)
 
             any_batch_is_finished = random_sampler.is_finished.any()
             if any_batch_is_finished:
