@@ -167,7 +167,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     generators = {}
     for i, kv in enumerate(model_opt.generators.split(",")):
         k, _ = kv.split(":")
-        output_size = 54 if k == "0" else output_size
+        # output_size = 54 if k == "0" else output_size
         generators[k] = nn.Sequential(
             nn.Linear(input_size,
                       input_size),

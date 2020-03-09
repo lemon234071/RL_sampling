@@ -168,6 +168,7 @@ def topk_guide(logits, pos_logits, learned_k):
 
 # yida translate
 def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
+    num_topp_left = None
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     elif sample_method == "topp":

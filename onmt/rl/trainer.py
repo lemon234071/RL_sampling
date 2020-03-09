@@ -568,6 +568,7 @@ class Translator(object):
         # infer samples(slow or not
         attn_debug = False
         k_reward_qs = []
+        k_low_bleu = []
         k_bleu = []
         k_dist = []
         for i in range(self.samples_n):
@@ -585,14 +586,11 @@ class Translator(object):
             # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
             # # cal rewards
             # reward_dict = cal_reward(batch_sents, golden_truth)
-            if self.samples_method == "topk":
-                reward_sample = reward_dict["bleu"]
-            else:
-                reward_sample = reward_dict["bleu"] + reward_dict["dist"]
-                # reward_sample = reward_dict["bleu"] - reward_dict["diff_dist"]
+            reward_sample = sum(reward_dict.values())
             k_reward_qs.append(reward_sample)
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
+            k_low_bleu.append(reward_dict["low_bleu"])
 
         # arg
         argmax_t = {}
@@ -609,11 +607,7 @@ class Translator(object):
         metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
         # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
         # metirc_argmax = cal_reward(baseline, golden_truth)
-        if self.samples_method == "topk":
-            reward_argmax = metirc_argmax["bleu"]
-        else:
-            reward_argmax = metirc_argmax["bleu"] + metirc_argmax["dist"]
-            # reward_argmax = metirc_argmax["bleu"] - metirc_argmax["diff_dist"]
+        reward_argmax = sum(metirc_argmax.values())
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         reward_bl = reward_mean
@@ -631,6 +625,9 @@ class Translator(object):
                     self.optim.training_step)
             self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
             self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
+                                    self.optim.training_step)
+            self.writer.add_scalars("train_reward/low_bleu",
+                                    {"argmax": metirc_argmax["low_bleu"], "mean": sum(k_low_bleu) / len(k_low_bleu)},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/bleu",
                                     {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
@@ -729,15 +726,14 @@ class Translator(object):
         metirc_sample = cal_reward_tokens(all_predictions, golden)
         # metirc_argmax = cal_reward(arg_prediction, golden)
         # metirc_sample = cal_reward(all_predictions, golden)
-        if self.samples_method == "freq":
-            reward = metirc_sample["bleu"] * 100 + metirc_sample["dist"]
-            reward_arg = metirc_argmax["bleu"] * 100 + metirc_argmax["dist"]
-        else:
-            reward = metirc_sample["bleu"]
-            reward_arg = metirc_argmax["bleu"]
+        reward = sum(metirc_sample.values())
+        reward_arg = sum(metirc_argmax.values())
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/reward",
                                 {"reward_sample": reward, "reward_arg": reward_arg}, self.optim.training_step)
+        self.writer.add_scalars("valid_reward/low_bleu",
+                                {"bleu": metirc_sample["low_bleu"],
+                                 "bleu_arg": metirc_argmax["low_bleu"]}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/bleu",
                                 {"bleu": metirc_sample["bleu"],
                                  "bleu_arg": metirc_argmax["bleu"]}, self.optim.training_step)
