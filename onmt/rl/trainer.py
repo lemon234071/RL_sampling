@@ -528,8 +528,15 @@ class Translator(object):
         # prepare input
         # input = enc_states.transpose(0, 1)
         # input = input.contiguous().view(input.size(0), -1)
+        fix_k = 1
+        if self.optim.training_step % 100 == 0:
+            fix_k = 1 - fix_k
+        if self.optim.training_step > 900:
+            fix_k = None
+
         inputs = enc_states[-1].squeeze()
-        log_probs = self.rl_model(inputs)
+        log_probs = self.rl_model(inputs, str(fix_k))
+        # log_probs["1"].detach()
 
         # compute loss
         loss = self._compute_loss_k(log_probs, batch, data, xlation_builder,

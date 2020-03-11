@@ -185,10 +185,14 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             super(TMEPModel, self).__init__()
             self.generators = gens
 
-        def forward(self, inputs):
+        def forward(self, inputs, fix_k=None):
             outputs = {}
             for name, gen in self.generators.items():
-                outputs[name] = gen(inputs)
+                if name == fix_k:
+                    with torch.no_grad():
+                        outputs[name] = gen(inputs)
+                else:
+                    outputs[name] = gen(inputs)
             return outputs
 
     model = TMEPModel(generators)
