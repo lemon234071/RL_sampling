@@ -1,7 +1,5 @@
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
-from onmt.rl.eval_mask_bleu import eval_bleu
-
 
 def cal_reward(preds, golden):
     infer = [x[0].split() for x in preds]
@@ -24,7 +22,8 @@ def cal_reward_tokens(infer, golden):
     nltk_bleu.append(corpus_bleu(golden, infer, smoothing_function=chencherry.method1))
     bleu = round(nltk_bleu[0] * 100, 7)
     dist1, dist2 = [round(x, 7) for x in eval_distinct(infer)]
-    low_bleu = round(eval_bleu(golden, infer) * 100, 7)
+    # low_bleu = round(eval_bleu(golden, infer) * 100, 7)
+    low_bleu = 0
 
     # a tempt
     # gt_dist1, gt_dist2 = [round(x, 6) for x in eval_distinct([x[0] for x in golden])]

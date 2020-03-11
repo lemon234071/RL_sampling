@@ -597,7 +597,6 @@ class Translator(object):
             k_reward_qs.append(reward_sample)
             k_bleu.append(reward_dict["bleu"])
             k_dist.append(reward_dict["dist"])
-            k_low_bleu.append(reward_dict["low_bleu"])
 
         # arg
         argmax_t = {}
@@ -632,9 +631,6 @@ class Translator(object):
                     self.optim.training_step)
             self.writer.add_scalars("train_loss", {"loss_mean": loss_t.mean()}, self.optim.training_step)
             self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
-                                    self.optim.training_step)
-            self.writer.add_scalars("train_reward/low_bleu",
-                                    {"argmax": metirc_argmax["low_bleu"], "mean": sum(k_low_bleu) / len(k_low_bleu)},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/bleu",
                                     {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
@@ -738,9 +734,6 @@ class Translator(object):
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/reward",
                                 {"reward_sample": reward, "reward_arg": reward_arg}, self.optim.training_step)
-        self.writer.add_scalars("valid_reward/low_bleu",
-                                {"bleu": metirc_sample["low_bleu"],
-                                 "bleu_arg": metirc_argmax["low_bleu"]}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/bleu",
                                 {"bleu": metirc_sample["bleu"],
                                  "bleu_arg": metirc_argmax["bleu"]}, self.optim.training_step)
