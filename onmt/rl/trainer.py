@@ -531,7 +531,7 @@ class Translator(object):
         fix_k = 1
         if self.optim.training_step % 100 == 0:
             fix_k = 1 - fix_k
-        if self.optim.training_step > 900:
+        if self.optim.training_step > 1200:
             fix_k = None
 
         inputs = enc_states[-1].squeeze()
@@ -600,14 +600,15 @@ class Translator(object):
 
         # arg
         argmax_t = {}
-        for k, logits_t in log_probs.items():
-            _, topk_ids = logits_t.topk(1, dim=-1)
-            argmax_t[k] = self.tid2t([topk_ids])[0]
+        argmax_t = None
+        # for k, logits_t in log_probs.items():
+        #     _, topk_ids = logits_t.topk(1, dim=-1)
+        #     argmax_t[k] = self.tid2t([topk_ids])[0]
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-            argmax_t, sample_method=self.samples_method
+            argmax_t, sample_method="greedy"
         )
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
         metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
@@ -616,8 +617,8 @@ class Translator(object):
         reward_argmax = sum(metirc_argmax.values())
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
-        reward_bl = reward_mean
-        # reward_bl = reward_argmax
+        # reward_bl = reward_mean
+        reward_bl = reward_argmax
         reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
             [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
         loss = reward * loss_t
@@ -994,20 +995,16 @@ class Translator(object):
                 if indices.any():
                     k_output = dec_out.squeeze(0)[indices]
                     k_logits = gen(k_output)
-                    try:
-                        k_probs = torch.log_softmax(k_logits / learned_t[k][indices], dim=-1)
-                        # k_probs = torch.log_softmax(k_logits, dim=-1)
-                    except:
-                        print("11111111111111111111111111111111111111")
-                        import pdb;
-                        pdb.set_trace()
+                    if learned_t is not None:
+                        k_logits /= learned_t[k][indices]
+                    k_probs = torch.log_softmax(k_logits, dim=-1)
                     mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
                     log_probs.masked_scatter_(mask.bool(), k_probs)
-            temp = log_probs.max(1)[0]
-            if torch.isnan(temp).any() or torch.isinf(temp).any():
-                print("222222222222222222222222222222222")
-                import pdb;
-                pdb.set_trace()
+            # temp = log_probs.max(1)[0]
+            # if torch.isnan(temp).any() or torch.isinf(temp).any():
+            #     print("222222222222222222222222222222222")
+            #     import pdb;
+            #     pdb.set_trace()
             # else:
             #     logits = self.model.generators["generator"](dec_out.squeeze(0))
             #     log_probs = torch.log_softmax(logits, dim=-1)

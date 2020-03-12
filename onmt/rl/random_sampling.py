@@ -295,7 +295,7 @@ class RandomSampling(DecodeStrategy):
         self.original_batch_idx = torch.arange(self.batch_size,
                                                dtype=torch.long, device=device)
         # yida translate
-        self.learned_t = {k: v.clone() for k, v in learned_t.items()}
+        self.learned_t = {k: v.clone() for k, v in learned_t.items()} if learned_t is not None else None
         self.pos_predictions = [[] for _ in range(batch_size)]
         # self.entropy = [[] for _ in range(batch_size)]
         # self.pos_entropy = [[] for _ in range(batch_size)]
@@ -370,8 +370,9 @@ class RandomSampling(DecodeStrategy):
         is_alive = ~self.is_finished.view(-1)
         self.alive_seq = self.alive_seq[is_alive]
         # yida translate
-        for k in self.learned_t.keys():
-            self.learned_t[k] = self.learned_t[k][is_alive]
+        if self.learned_t is not None:
+            for k in self.learned_t.keys():
+                self.learned_t[k] = self.learned_t[k][is_alive]
         # self.H_alive_seq = self.H_alive_seq[is_alive]
         if self.tag_gen:
             self.pos_alive_seq = self.pos_alive_seq[is_alive]
