@@ -502,7 +502,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0:  # or step == 1:
+                if step % self.valid_steps == 0 or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -810,8 +810,12 @@ class Translator(object):
 
         results = {
             "predictions": None,
+            "scores": None,
             "attention": None,
-            "batch": batch}
+            "batch": batch,
+            "gold_score": self._gold_score(
+                batch, memory_bank, src_lengths, src_vocabs, use_src_map,
+                enc_states, batch_size, src)}
 
         memory_lengths = src_lengths
         src_map = batch.src_map if use_src_map else None
@@ -894,6 +898,7 @@ class Translator(object):
                 self.model.decoder.map_state(
                     lambda state, dim: state.index_select(dim, select_indices))
 
+        results["scores"] = random_sampler.scores
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate

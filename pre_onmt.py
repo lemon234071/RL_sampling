@@ -334,21 +334,52 @@ def freq_reddit_json(name, path, out_dir, high, n, unk_low=False):
     high_freq = set([x for x in vocab[:int(high * len(vocab))]])
     print(len(high_freq), "len high")
     # save_txt("\n".join(list(high_freq)), rootdir+"high_freq.txt")
-    freq_itoj = [0, 0, 1, 2]
+    freq_itoj = [0, 0, 1, 2] if unk_low else [0, 1, 2, 3]
     for i, word in enumerate(vocab):
         if i < 150:
-            freq_itoj.append(i + 3)
+            freq_itoj.append(i + freq_itoj[3] + 1)
             # set_stopwords.add(word)
         else:
-            freq_itoj.append(i - 150 + 1)
+            freq_itoj.append(i - 150 + 1 - freq_itoj[1])
     save_json(freq_itoj, out_dir + "freq_itoj.json")
 
     vocab = set([x for x in vocab])
     random.shuffle(data)
 
-    test = data[-10000:]
-    valid = data[-20000:-10000]
-    train = data[:-20000]
+    data_dict = collections.defaultdict(set)
+    for dialog in data:
+        data_dict[dialog[0]].add(dialog[1])
+
+    test = []
+    valid = []
+    train = []
+    src = list(data_dict.keys())
+    while True:
+        if len(test) < 10000:
+            post = src[0]
+            src.remove(post)
+            random.shuffle(src)
+            for resp in data_dict[post]:
+                test.append([post, resp])
+        elif len(valid) < 10000:
+            post = src[0]
+            src.remove(post)
+            random.shuffle(src)
+            for resp in data_dict[post]:
+                valid.append([post, resp])
+        else:
+            break
+    for post in src:
+        for resp in data_dict[post]:
+            train.append([post, resp])
+    print(len(test), "test")
+    print(len(valid), "valid")
+    print(len(valid), "train")
+
+    #
+    # test = data[-10000:]
+    # valid = data[-20000:-10000]
+    # train = data[:-20000]
 
     dataset = {"train": train, "valid": valid, "test": test}
     rate_all = 0
@@ -394,13 +425,10 @@ def freq_reddit_json(name, path, out_dir, high, n, unk_low=False):
                         line_n -= 1
             tag_data.append(tag_dialog)
         assert len(v) == len(tag_data)
-        if not os.path.exists(out_dir + "src-" + k + ".txt"):
-            src = [dialog[0] for dialog in v]
-            tgt = [dialog[1] for dialog in v]
-            save_txt("\n".join(src), out_dir + "src-" + k + ".txt")
-            save_txt("\n".join(tgt), out_dir + "tgt-" + k + ".txt")
-        else:
-            print("src exits")
+        src = [dialog[0] for dialog in v]
+        tgt = [dialog[1] for dialog in v]
+        save_txt("\n".join(src), out_dir + "src-" + k + ".txt")
+        save_txt("\n".join(tgt), out_dir + "tgt-" + k + ".txt")
         print(v[0])
         print(tag_data[0])
         tag_src = [dialog[0] for dialog in tag_data]
@@ -750,7 +778,9 @@ def main():
     # tri_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 50000)
 
     # freq_reddit_json("freq2", "data_raw/reddit_small_single.json", "data_reddit_small2/", 0.003, 50000, unk_low=True)
-    fri_reddit_json("fri", "data_raw/reddit_small_single.json", "data_reddit_fri/", 50000)
+    # fri_reddit_json("fri", "data_raw/reddit_small_single.json", "data_reddit_fri/", 50000)
+
+    freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
     print(1)
 
 
