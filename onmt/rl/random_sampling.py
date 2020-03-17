@@ -180,9 +180,6 @@ def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
         # entropy
         # logits = pos_guide(logits, pos_logits)
 
-        ## freq x
-        elif sample_method == "freq":
-            logits = freq_guide(logits, pos_logits)
         elif sample_method == "topk":
             logits = topk_guide(logits, pos_logits)
         else:

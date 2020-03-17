@@ -16,11 +16,13 @@ def cal_reward(preds, golden):
     return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
 
 
-def cal_reward_tokens(infer, golden):
+def get_metric_tokens(infer, golden, bl=False):
     nltk_bleu = []
     chencherry = SmoothingFunction()
     nltk_bleu.append(corpus_bleu(golden, infer, smoothing_function=chencherry.method1))
     bleu = round(nltk_bleu[0] * 100, 7)
+    if bl:
+        infer = [x[0] for x in golden]
     dist1, dist2 = [round(x, 7) for x in eval_distinct(infer)]
     # low_bleu = round(eval_bleu(golden, infer) * 100, 7)
     low_bleu = 0

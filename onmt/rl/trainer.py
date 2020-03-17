@@ -6,7 +6,6 @@ import codecs
 import collections
 import math
 import os
-import random
 import time
 from itertools import count
 
@@ -17,13 +16,32 @@ import onmt.decoders.ensemble
 import onmt.inputters as inputters
 import onmt.model_builder
 import onmt.rl.beam
-from onmt.modules.copy_generator import collapse_copy_scores
-from onmt.rl.beam_search import BeamSearch
 # yida RL translate
-from onmt.rl.eval import cal_reward_tokens
+from onmt.rl.eval import get_metric_tokens
 from onmt.rl.random_sampling import RandomSampling
-from onmt.utils.misc import tile, set_random_seed
+from onmt.utils.misc import set_random_seed
 from utils import *
+
+
+def get_topp(logits, top_p=0.9):
+    probs = logits.exp()
+    # Compute cumulative probabilities of sorted tokens
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+    cumulative_probabilities = torch.cumsum(sorted_probs, dim=-1)
+
+    # Remove tokens with cumulative probability above the threshold
+    sorted_indices_to_remove = cumulative_probabilities > top_p
+    # Shift the indices to the right to keep also the first token above the threshold
+    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    sorted_indices_to_remove[..., 0] = 0
+
+    sorted_samp_probs = sorted_probs.clone()
+    sorted_samp_probs[sorted_indices_to_remove] = 0
+    ###
+    samp_probs = probs.clone()
+    samp_probs.scatter_(1, sorted_indices, sorted_samp_probs)
+    samp_logits = samp_probs.log()
+    return samp_logits
 
 
 def build_rltor_enc(opt, rl_model, optim, model_saver, report_score=True, logger=None, out_file=None):
@@ -322,14 +340,7 @@ class Translator(object):
 
     def _gold_score(self, batch, memory_bank, src_lengths, src_vocabs,
                     use_src_map, enc_states, batch_size, src):
-        # if "tgt" in batch.__dict__:
-        if False:
-            gs = self._score_target(
-                batch, memory_bank, src_lengths, src_vocabs,
-                batch.src_map if use_src_map else None)
-            self.model.decoder.init_state(src, memory_bank, enc_states)
-        else:
-            gs = [0] * batch_size
+        gs = [0] * batch_size
         return gs
 
     def infer(
@@ -491,7 +502,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -531,8 +542,9 @@ class Translator(object):
         fix_k = 1
         if self.optim.training_step % 100 == 0:
             fix_k = 1 - fix_k
-        if self.optim.training_step > 1200:
+        if self.optim.training_step > 1200 or self.optim.training_step < 600:
             fix_k = None
+        fix_k = None
 
         inputs = enc_states[-1].squeeze()
         log_probs = self.rl_model(inputs, str(fix_k))
@@ -548,20 +560,12 @@ class Translator(object):
 
     def _compute_loss_k(self, log_probs, batch, data, xlation_builder, src, enc_states, memory_bank,
                         src_lengths):
-        ts_ids = {}
 
-        if False:  # random.random() < (self.random_steps - self.optim.training_step) / self.random_steps:
-            for k in log_probs.keys():
-                ts_ids[k] = [torch.tensor([[random.randint(0, 19)] for i in range(batch.batch_size)],
-                                          device=self._dev) for i in range(self.samples_n)]
-        else:
-            for k, logits in log_probs.items():
-                if torch.isnan(logits).any() or torch.isinf(logits).any():
-                    print(2321321)
-                    import pdb
-                    pdb.set_trace()
-                dist = torch.distributions.Multinomial(logits=logits, total_count=1)
-                ts_ids[k] = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
+        # sampling temperature
+        ts_ids = {}
+        for k, logits in log_probs.items():
+            dist = torch.distributions.Multinomial(logits=logits, total_count=1)
+            ts_ids[k] = [torch.argmax(dist.sample(), dim=1, keepdim=True) for i in range(self.samples_n)]
         loss_t = torch.tensor([0] * self.samples_n, dtype=torch.float, device=self._dev)
         learned_t = {}
         for k, logits_t in log_probs.items():
@@ -575,7 +579,6 @@ class Translator(object):
         # infer samples(slow or not
         attn_debug = False
         k_reward_qs = []
-        k_low_bleu = []
         k_bleu = []
         k_dist = []
         for i in range(self.samples_n):
@@ -586,24 +589,22 @@ class Translator(object):
                 {k: v[i] for k, v in learned_t.items()}, sample_method=self.samples_method
             )
             pred_ids, gt_ids = self.tensor2ids(batch_data)
-            # diff unk
-            reward_dict = cal_reward_tokens(pred_ids, gt_ids)
+            metrices = get_metric_tokens(pred_ids, gt_ids)
 
             # # # translate, so slow
             # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
             # # cal rewards
             # reward_dict = cal_reward(batch_sents, golden_truth)
-            reward_sample = sum(reward_dict.values())
+            reward_sample = self._compute_reward(metrices)
             k_reward_qs.append(reward_sample)
-            k_bleu.append(reward_dict["bleu"])
-            k_dist.append(reward_dict["dist"])
+            k_bleu.append(metrices["bleu"])
+            k_dist.append(metrices["dist"])
 
-        # arg
+        # bl
         argmax_t = {}
-        argmax_t = None
-        # for k, logits_t in log_probs.items():
-        #     _, topk_ids = logits_t.topk(1, dim=-1)
-        #     argmax_t[k] = self.tid2t([topk_ids])[0]
+        for k, logits_t in log_probs.items():
+            _, topk_ids = logits_t.topk(1, dim=-1)
+            argmax_t[k] = self.tid2t([topk_ids])[0]
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
@@ -611,10 +612,8 @@ class Translator(object):
             argmax_t, sample_method="greedy"
         )
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
-        metirc_argmax = cal_reward_tokens(arg_pred_ids, arg_gt_ids)
-        # baseline, golden_truth = self.ids2sents(bl_batch_data, xlation_builder)
-        # metirc_argmax = cal_reward(baseline, golden_truth)
-        reward_argmax = sum(metirc_argmax.values())
+        metrices_bl = get_metric_tokens(arg_pred_ids, arg_gt_ids)
+        reward_argmax = self._compute_reward(metrices_bl)
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # reward_bl = reward_mean
@@ -634,13 +633,17 @@ class Translator(object):
             self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/bleu",
-                                    {"argmax": metirc_argmax["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
+                                    {"argmax": metrices["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/dist",
-                                    {"argmax": metirc_argmax["dist"], "mean": sum(k_dist) / len(k_dist)},
+                                    {"argmax": metrices["dist"], "mean": sum(k_dist) / len(k_dist)},
                                     self.optim.training_step)
             self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
+
+    def _compute_reward(self, metric_dict):
+        reward = metric_dict["bleu"] * 100 + metric_dict["dist"]
+        return reward
 
     def tid2t(self, t_ids):
         # return t_ids.float() + 0.001
@@ -726,12 +729,12 @@ class Translator(object):
         if infer:
             return arg_prediction
         # diff unk
-        metirc_argmax = cal_reward_tokens(arg_prediction, golden)
-        metirc_sample = cal_reward_tokens(all_predictions, golden)
+        metirc_argmax = get_metric_tokens(arg_prediction, golden)
+        metirc_sample = get_metric_tokens(all_predictions, golden)
         # metirc_argmax = cal_reward(arg_prediction, golden)
         # metirc_sample = cal_reward(all_predictions, golden)
-        reward = sum(metirc_sample.values())
-        reward_arg = sum(metirc_argmax.values())
+        reward = self._compute_reward(metirc_sample)
+        reward_arg = self._compute_reward(metirc_argmax)
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/reward",
                                 {"reward_sample": reward, "reward_arg": reward_arg}, self.optim.training_step)
@@ -807,12 +810,8 @@ class Translator(object):
 
         results = {
             "predictions": None,
-            "scores": None,
             "attention": None,
-            "batch": batch,
-            "gold_score": self._gold_score(
-                batch, memory_bank, src_lengths, src_vocabs, use_src_map,
-                enc_states, batch_size, src)}
+            "batch": batch}
 
         memory_lengths = src_lengths
         src_map = batch.src_map if use_src_map else None
@@ -895,7 +894,6 @@ class Translator(object):
                 self.model.decoder.map_state(
                     lambda state, dim: state.index_select(dim, select_indices))
 
-        results["scores"] = random_sampler.scores
         results["predictions"] = random_sampler.predictions
         results["attention"] = random_sampler.attention
         # yida translate
@@ -971,288 +969,37 @@ class Translator(object):
         )
 
         # Generator forward.
-        if not self.copy_attn:
-            if "std" in dec_attn:
-                attn = dec_attn["std"]
-            else:
-                attn = None
-
-            tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
-            if "tag" in self.model.generators:
-                tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
-                tag_argmax = tag_log_probs.max(1)[1]
-            else:
-                tag_log_probs = None
-
-            log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
-                                   dtype=torch.float, device=self._dev)
-            pass_indices = {}
-            for k, gen in self.model.generators.items():
-                if k == "tag":
-                    continue
-                indices = tag_argmax.eq(self.tag_vocab[k])
-                pass_indices[k] = indices
-                if indices.any():
-                    k_output = dec_out.squeeze(0)[indices]
-                    k_logits = gen(k_output)
-                    if learned_t is not None:
-                        k_logits /= learned_t[k][indices]
-                    k_probs = torch.log_softmax(k_logits, dim=-1)
-                    mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
-                    log_probs.masked_scatter_(mask.bool(), k_probs)
-            # temp = log_probs.max(1)[0]
-            # if torch.isnan(temp).any() or torch.isinf(temp).any():
-            #     print("222222222222222222222222222222222")
-            #     import pdb;
-            #     pdb.set_trace()
-            # else:
-            #     logits = self.model.generators["generator"](dec_out.squeeze(0))
-            #     log_probs = torch.log_softmax(logits, dim=-1)
-            # returns [(batch_size x beam_size) , vocab ] when 1 step
-            # or [ tgt_len, batch_size, vocab ] when full sentence
+        if "std" in dec_attn:
+            attn = dec_attn["std"]
         else:
-            attn = dec_attn["copy"]
-            scores = self.model.generator(dec_out.view(-1, dec_out.size(2)),
-                                          attn.view(-1, attn.size(2)),
-                                          src_map)
-            # here we have scores [tgt_lenxbatch, vocab] or [beamxbatch, vocab]
-            if batch_offset is None:
-                scores = scores.view(-1, batch.batch_size, scores.size(-1))
-                scores = scores.transpose(0, 1).contiguous()
-            else:
-                scores = scores.view(-1, self.beam_size, scores.size(-1))
-            scores = collapse_copy_scores(
-                scores,
-                batch,
-                self._tgt_vocab,
-                src_vocabs,
-                batch_dim=0,
-                batch_offset=batch_offset
-            )
-            scores = scores.view(decoder_in.size(0), -1, scores.size(-1))
-            log_probs = scores.squeeze(0).log()
-            # returns [(batch_size x beam_size) , vocab ] when 1 step
-            # or [ tgt_len, batch_size, vocab ] when full sentence
+            attn = None
+
+        tag_outputs = rnn_outs if not isinstance(rnn_outs, list) else dec_out
+        if "tag" in self.model.generators:
+            tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
+            tag_argmax = tag_log_probs.max(1)[1]
+        else:
+            tag_log_probs = None
+
+        log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                               dtype=torch.float, device=self._dev)
+        pass_indices = {}
+        for k, gen in self.model.generators.items():
+            if k == "tag":
+                continue
+            indices = tag_argmax.eq(self.tag_vocab[k])
+            pass_indices[k] = indices
+            if indices.any():
+                k_output = dec_out.squeeze(0)[indices]
+                k_logits = gen(k_output)
+                if learned_t is not None:
+                    # k_logits = get_topp(k_logits)
+                    k_logits /= learned_t[k][indices]
+                k_probs = torch.log_softmax(k_logits, dim=-1)
+                mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                log_probs.masked_scatter_(mask.bool(), k_probs)
         # yida translate
         return log_probs, attn, tag_log_probs, pass_indices
-
-    def _translate_batch(
-            self,
-            batch,
-            src_vocabs,
-            max_length,
-            min_length=0,
-            ratio=0.,
-            n_best=1,
-            return_attention=False):
-        # TODO: support these blacklisted features.
-        assert not self.dump_beam
-
-        # (0) Prep the components of the search.
-        use_src_map = self.copy_attn
-        beam_size = self.beam_size
-        batch_size = batch.batch_size
-
-        # (1) Run the encoder on the src.
-        src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
-        self.model.decoder.init_state(src, memory_bank, enc_states)
-
-        results = {
-            "predictions": None,
-            "scores": None,
-            "attention": None,
-            "batch": batch,
-            "gold_score": self._gold_score(
-                batch, memory_bank, src_lengths, src_vocabs, use_src_map,
-                enc_states, batch_size, src)}
-
-        # (2) Repeat src objects `beam_size` times.
-        # We use batch_size x beam_size
-        src_map = (tile(batch.src_map, beam_size, dim=1)
-                   if use_src_map else None)
-        self.model.decoder.map_state(
-            lambda state, dim: tile(state, beam_size, dim=dim))
-
-        if isinstance(memory_bank, tuple):
-            memory_bank = tuple(tile(x, beam_size, dim=1) for x in memory_bank)
-            mb_device = memory_bank[0].device
-        else:
-            memory_bank = tile(memory_bank, beam_size, dim=1)
-            mb_device = memory_bank.device
-        memory_lengths = tile(src_lengths, beam_size)
-
-        # (0) pt 2, prep the beam object
-        beam = BeamSearch(
-            beam_size,
-            n_best=n_best,
-            batch_size=batch_size,
-            global_scorer=self.global_scorer,
-            pad=self._tgt_pad_idx,
-            eos=self._tgt_eos_idx,
-            bos=self._tgt_bos_idx,
-            min_length=min_length,
-            ratio=ratio,
-            max_length=max_length,
-            mb_device=mb_device,
-            return_attention=return_attention,
-            stepwise_penalty=self.stepwise_penalty,
-            block_ngram_repeat=self.block_ngram_repeat,
-            exclusion_tokens=self._exclusion_idxs,
-            memory_lengths=memory_lengths)
-
-        for step in range(max_length):
-            decoder_input = beam.current_predictions.view(1, -1, 1)
-
-            log_probs, attn = self._decode_and_generate(
-                decoder_input,
-                memory_bank,
-                batch,
-                src_vocabs,
-                memory_lengths=memory_lengths,
-                src_map=src_map,
-                step=step,
-                batch_offset=beam._batch_offset)
-
-            beam.advance(log_probs, attn)
-            any_beam_is_finished = beam.is_finished.any()
-            if any_beam_is_finished:
-                beam.update_finished()
-                if beam.done:
-                    break
-
-            select_indices = beam.current_origin
-
-            if any_beam_is_finished:
-                # Reorder states.
-                if isinstance(memory_bank, tuple):
-                    memory_bank = tuple(x.index_select(1, select_indices)
-                                        for x in memory_bank)
-                else:
-                    memory_bank = memory_bank.index_select(1, select_indices)
-
-                memory_lengths = memory_lengths.index_select(0, select_indices)
-
-                if src_map is not None:
-                    src_map = src_map.index_select(1, select_indices)
-
-            self.model.decoder.map_state(
-                lambda state, dim: state.index_select(dim, select_indices))
-
-        results["scores"] = beam.scores
-        results["predictions"] = beam.predictions
-        results["attention"] = beam.attention
-        return results
-
-    # This is left in the code for now, but unsued
-    def _translate_batch_deprecated(self, batch, src_vocabs):
-        # (0) Prep each of the components of the search.
-        # And helper method for reducing verbosity.
-        use_src_map = self.copy_attn
-        beam_size = self.beam_size
-        batch_size = batch.batch_size
-
-        beam = [onmt.translate.Beam(
-            beam_size,
-            n_best=self.n_best,
-            cuda=self.cuda,
-            global_scorer=self.global_scorer,
-            pad=self._tgt_pad_idx,
-            eos=self._tgt_eos_idx,
-            bos=self._tgt_bos_idx,
-            min_length=self.min_length,
-            stepwise_penalty=self.stepwise_penalty,
-            block_ngram_repeat=self.block_ngram_repeat,
-            exclusion_tokens=self._exclusion_idxs)
-            for __ in range(batch_size)]
-
-        # (1) Run the encoder on the src.
-        src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
-        self.model.decoder.init_state(src, memory_bank, enc_states)
-
-        results = {
-            "predictions": [],
-            "scores": [],
-            "attention": [],
-            "batch": batch,
-            "gold_score": self._gold_score(
-                batch, memory_bank, src_lengths, src_vocabs, use_src_map,
-                enc_states, batch_size, src)}
-
-        # (2) Repeat src objects `beam_size` times.
-        # We use now  batch_size x beam_size (same as fast mode)
-        src_map = (tile(batch.src_map, beam_size, dim=1)
-                   if use_src_map else None)
-        self.model.decoder.map_state(
-            lambda state, dim: tile(state, beam_size, dim=dim))
-
-        if isinstance(memory_bank, tuple):
-            memory_bank = tuple(tile(x, beam_size, dim=1) for x in memory_bank)
-        else:
-            memory_bank = tile(memory_bank, beam_size, dim=1)
-        memory_lengths = tile(src_lengths, beam_size)
-
-        # (3) run the decoder to generate sentences, using beam search.
-        for i in range(self.max_length):
-            if all((b.done for b in beam)):
-                break
-
-            # (a) Construct batch x beam_size nxt words.
-            # Get all the pending current beam words and arrange for forward.
-
-            inp = torch.stack([b.current_predictions for b in beam])
-            inp = inp.view(1, -1, 1)
-
-            # (b) Decode and forward
-            out, beam_attn = self._decode_and_generate(
-                inp, memory_bank, batch, src_vocabs,
-                memory_lengths=memory_lengths, src_map=src_map, step=i
-            )
-            out = out.view(batch_size, beam_size, -1)
-            beam_attn = beam_attn.view(batch_size, beam_size, -1)
-
-            # (c) Advance each beam.
-            select_indices_array = []
-            # Loop over the batch_size number of beam
-            for j, b in enumerate(beam):
-                if not b.done:
-                    b.advance(out[j, :],
-                              beam_attn.data[j, :, :memory_lengths[j]])
-                select_indices_array.append(
-                    b.current_origin + j * beam_size)
-            select_indices = torch.cat(select_indices_array)
-
-            self.model.decoder.map_state(
-                lambda state, dim: state.index_select(dim, select_indices))
-
-        # (4) Extract sentences from beam.
-        for b in beam:
-            scores, ks = b.sort_finished(minimum=self.n_best)
-            hyps, attn = [], []
-            for times, k in ks[:self.n_best]:
-                hyp, att = b.get_hyp(times, k)
-                hyps.append(hyp)
-                attn.append(att)
-            results["predictions"].append(hyps)
-            results["scores"].append(scores)
-            results["attention"].append(attn)
-
-        return results
-
-    def _score_target(self, batch, memory_bank, src_lengths,
-                      src_vocabs, src_map):
-        tgt = batch.tgt
-        tgt_in = tgt[:-1]
-
-        log_probs, attn = self._decode_and_generate(
-            tgt_in, memory_bank, batch, src_vocabs,
-            memory_lengths=src_lengths, src_map=src_map)
-
-        log_probs[:, :, self._tgt_pad_idx] = 0
-        gold = tgt[1:]
-        gold_scores = log_probs.gather(2, gold)
-        gold_scores = gold_scores.sum(dim=0).view(-1)
-
-        return gold_scores
 
     def _report_score(self, name, score_total, words_total):
         if words_total == 0:
