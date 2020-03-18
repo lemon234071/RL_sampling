@@ -69,8 +69,8 @@ def build_loss_compute(model, fields, opt, train=True):
 
     tag_field = dict(fields)["pos_tgt"].base_field
     compute = NMTLossCompute(criterion, loss_gen,
-                             criterions, model.generators, opt.itoj,
-                             opt.statistic, tag_field.vocab.stoi, device, train=train,
+                             criterions, model.generators, opt.itoj, opt.statistic, tag_field.vocab.stoi, opt.high_num,
+                             device, train=train,
                              lambda_coverage=opt.lambda_coverage)
     # if opt.copy_attn:
     #     compute = onmt.modules.CopyGeneratorLossCompute(
@@ -258,7 +258,7 @@ class NMTLossCompute(LossComputeBase):
 
     # TODO(yida) loss
     def __init__(self, criterion, generator,
-                 criterions, generators, itoj_path, sta, tag_vocab,
+                 criterions, generators, itoj_path, sta, tag_vocab, high_num,
                  device,
                  train=False,
                  normalization="sents",
@@ -269,7 +269,8 @@ class NMTLossCompute(LossComputeBase):
 
         self.criterions = criterions
         self.generators = generators
-        self.itoj = load_json(itoj_path)
+        self.itoj = load_json(itoj_path) if itoj_path != "" else None
+        self.high_num = high_num
         self.tag_vocab = tag_vocab
         self.sta = sta
         self.writer = SummaryWriter(comment="sta_train") if train else SummaryWriter(comment="sta_valid")
@@ -350,7 +351,7 @@ class NMTLossCompute(LossComputeBase):
                 # temp
             scores = bottled_output
         else:
-            scores = self.generator(bottled_output)
+            scores = self.generators["generator"](bottled_output)
             scores = torch.log_softmax(scores, dim=-1)
             gtruth = target.view(-1)
             loss_dict["loss"] = self.criterion(scores, gtruth)
@@ -394,7 +395,7 @@ class NMTLossCompute(LossComputeBase):
         # high_low probs
         argmax_scores, argmax_ids = scores.max(1)
         log_prob = scores.gather(-1, gtruth.unsqueeze(-1))
-        index = int(self.high_rate * (scores.shape[-1] - 4)) + 4
+        index = self.high_num + 4
         low_index = ~gtruth.lt(index)
         non_pad = gtruth.ne(self.padding_idx)
         high_index = (~low_index) & non_pad
@@ -409,7 +410,7 @@ class NMTLossCompute(LossComputeBase):
         self.writer.add_scalars("sta_probs/high_prob",
                                 {"high_prob": high_prob.mean(), "arg_high": arg_high.mean()},
                                 self.step)
-        if self.tag_generator is not None:
+        if "tag" in self.generators:
             # align
             non_padding = gtruth.ne(self.padding_idx)
             preds_words = scores.max(1)[1].lt(index)

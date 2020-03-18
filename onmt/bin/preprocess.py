@@ -59,7 +59,7 @@ def process_one_shard(corpus_params, params):
         readers=([src_reader, tgt_reader, src_reader, tgt_reader]
                  if tgt_reader else [src_reader]),
         # TODO(yida) preprocess
-        data=([("src", src_shard), ("tgt", tgt_shard), ("pos_src", pos_src_shard), ("pos_tgt", pos_tgt_shard)]
+        data=([("src", src_shard), ("tgt", tgt_shard), ("tag_src", pos_src_shard), ("tag_tgt", pos_tgt_shard)]
               if tgt_reader else [("src", src_shard)]),
         # TODO(yida) preprocess
         dirs=([opt.src_dir, None, None, None]

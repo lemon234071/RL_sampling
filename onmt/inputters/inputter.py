@@ -121,15 +121,15 @@ def get_fields(
                         "include_lengths": True,
                         "pad": pad, "bos": None, "eos": None,
                         "truncate": src_truncate,
-                        "base_name": "pos_src"}
-    fields["pos_src"] = fields_getters[src_data_type](**pos_src_field_kwargs)
+                            "base_name": "tag_src"}
+    fields["tag_src"] = fields_getters[src_data_type](**pos_src_field_kwargs)
 
     pos_tgt_field_kwargs = {"n_feats": n_tgt_feats,
                         "include_lengths": False,
                             "pad": pad, "bos": bos, "eos": None,
                         "truncate": tgt_truncate,
-                        "base_name": "pos_tgt"}
-    fields["pos_tgt"] = fields_getters["text"](**pos_tgt_field_kwargs)
+                            "base_name": "tag_tgt"}
+    fields["tag_tgt"] = fields_getters["text"](**pos_tgt_field_kwargs)
 
 
     indices = Field(use_vocab=False, dtype=torch.long, sequential=False)
