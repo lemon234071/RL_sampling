@@ -184,71 +184,54 @@ def onmt_opensubtitle(dir_path, out_dir):
     save_json(vocab_json, out_dir + "vocab.json")
 
 
-def freq_opensub(rootdir, out_dir):
-    dir_path = rootdir + "data/"
-    file_list = os.listdir(dir_path)
-    stopwords = set(load_txt(rootdir + "stopwords.txt"))
-    print(len(stopwords))
-    vocab = [x[0] for x in load_json(dir_path + "vocab.json")]
-    cur = 0
-    high_freq = set()
-    for x in tqdm(vocab):
-        if x not in stopwords:
-            high_freq.add(x)
-        if len(high_freq) > int(0.001 * len(vocab)):
-            break
-    save_txt("\n".join(list(high_freq)), rootdir + "high_freq.txt")
+def freq_onmt(rootdir, out_dir, high_num, vocab_len):
+    itoj = [i for i in range(4 + high_num)] + [i for i in range(vocab_len - high_num)]
+    save_txt(itoj, os.path.join(out_dir, "itoj.json"))
+
+    file_list = os.listdir(rootdir)
+    vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
+    high_freq = set([x for x in vocab[: high_num]])
+    print(len(high_freq), "len high")
+
     for file in file_list:
         if ".txt" not in file:
             continue
         name = file[: file.rindex(".")]
-        print(name)
-        data = load_txt(dir_path + file)
+        print("file: ", name)
+        data = load_txt(os.path.join(rootdir + file))
         rate_all = 0
         line_n = len(data)
-        pos = []
+        tag_data = []
         for line in tqdm(data, mininterval=1):
-            pos_one = []
+            tag_seq = []
             seq = line.strip().split()
             high_n = 0
-            seq_n = len(seq)
+            seq_len = len(seq)
             for word in seq:
-                if word in stopwords:
-                    pos_one.append("2")
-                    seq_n -= 1
-                elif word in high_freq:
-                    pos_one.append("1")
+                if word in high_freq:
+                    tag_seq.append("high")
                     high_n += 1
                 else:
-                    pos_one.append("0")
-            assert len(pos_one) == len(seq)
-            pos.append(" ".join(pos_one))
-            if seq_n > 0:
-                rate_all += high_n / seq_n
+                    tag_seq.append("low")
+            if "tgt" in name:  # for eos
+                tag_seq.append("1")
+                high_n += 1
+                seq_len += 1
+            assert len(tag_seq) == len(seq)
+
+            tag_data.append(" ".join(tag_seq))
+            if seq_len > 0:
+                rate_all += high_n / seq_len
             else:
+                import pdb
+                pdb.set_trace()
                 line_n -= 1
 
         print(rate_all / line_n)
-        assert len(data) == len(pos)
-        save_txt("\n".join(pos), out_dir + "pos-" + name + ".txt")
-        print(out_dir + "pos-" + name + ".txt")
-
-
-def pos_onmt():
-    stopwords = set(load_txt("./tool_data/stopwords.txt"))
-    high_freq = set(load_txt("./tool_data/high_freq.txt"))
-    stoi = load_json("./tool_data/stoi.json")
-    vocab_onmt = [k for k in stoi.keys()]
-    print(vocab_onmt[:10])
-    stof = collections.OrderedDict()
-    for x in vocab_onmt:
-        if x in stopwords:
-            stof[x] = 4
-        elif x in high_freq:
-            stof[x] = 5
-        else:
-            stof[x] = 6
-    save_json(stof, "./tool_data/stof.json")
+        assert len(data) == len(tag_data)
+        save_txt("\n".join(tag_data), out_dir + "freq-" + name + ".txt")
+        print(out_dir + "freq-" + name + ".txt")
+        print("len :", len(tag_data))
 
 
 def freq_reddit(rootdir, out_dir):
@@ -719,7 +702,6 @@ def fri_reddit_json(name, path, out_dir, n):
     set_mid = set(vocab[16:200])
     set_vocab = set(vocab)
 
-
     dataset = {"train": train, "valid": valid, "test": test}
     for k, v in dataset.items():
         print(k)
@@ -780,7 +762,9 @@ def main():
     # freq_reddit_json("freq2", "data_raw/reddit_small_single.json", "data_reddit_small2/", 0.003, 50000, unk_low=True)
     # fri_reddit_json("fri", "data_raw/reddit_small_single.json", "data_reddit_fri/", 50000)
 
-    freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
+    # freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
+
+    freq_onmt("data/opensbutitle/", "data/opensbutitle/freq/", 150, 80000)
     print(1)
 
 

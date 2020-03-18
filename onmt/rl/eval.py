@@ -20,7 +20,7 @@ def get_metric_tokens(infer, golden, bl=False):
     nltk_bleu = []
     chencherry = SmoothingFunction()
     nltk_bleu.append(corpus_bleu(golden, infer, smoothing_function=chencherry.method1))
-    bleu = round(nltk_bleu[0] * 100, 7)
+    bleu = round(nltk_bleu[0], 7)
     if bl:
         infer = [x[0] for x in golden]
     dist1, dist2 = [round(x, 7) for x in eval_distinct(infer)]
