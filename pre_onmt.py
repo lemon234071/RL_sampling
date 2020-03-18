@@ -186,7 +186,7 @@ def onmt_opensubtitle(dir_path, out_dir):
 
 def freq_onmt(rootdir, out_dir, high_num, vocab_len):
     itoj = [i for i in range(4 + high_num)] + [i for i in range(vocab_len - high_num)]
-    save_txt(itoj, os.path.join(out_dir, "itoj.json"))
+    save_json(itoj, os.path.join(out_dir, "itoj.json"))
 
     file_list = os.listdir(rootdir)
     vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
