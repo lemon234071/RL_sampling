@@ -217,7 +217,6 @@ def freq_onmt(rootdir, out_dir, high_num, vocab_len):
                 tag_seq.append("1")
                 high_n += 1
                 seq_len += 1
-            assert len(tag_seq) == len(seq)
 
             tag_data.append(" ".join(tag_seq))
             if seq_len > 0:
