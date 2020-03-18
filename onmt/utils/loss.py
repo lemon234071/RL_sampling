@@ -67,7 +67,7 @@ def build_loss_compute(model, fields, opt, train=True):
     # loss_gen = model.generator[0] if use_raw_logits else model.generator
     loss_gen = None
 
-    tag_field = dict(fields)["pos_tgt"].base_field
+    tag_field = dict(fields)["tag_tgt"].base_field
     compute = NMTLossCompute(criterion, loss_gen,
                              criterions, model.generators, opt.itoj, opt.statistic, tag_field.vocab.stoi, opt.high_num,
                              device, train=train,
@@ -285,7 +285,7 @@ class NMTLossCompute(LossComputeBase):
                 "output": output,
                 "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
                 "tag_output": rnn_outs if not isinstance(rnn_outs, list) else output.clone(),  # TODO clone or not
-                "tag_target": batch.pos_tgt[range_[0] + 1: range_[1], :, 0]
+                "tag_target": batch.tag_tgt[range_[0] + 1: range_[1], :, 0]
             }
         else:
             shard_state = {
