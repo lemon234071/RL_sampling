@@ -312,9 +312,9 @@ class Trainer(object):
                 tgt = batch.tgt
                 # TODO(yida) train
                 if "tag" in self.model.generators:
-                    pos_src, _ = batch.pos_src \
-                        if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
-                    pos_tgt = batch.pos_tgt
+                    pos_src, _ = batch.tag_src \
+                        if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
+                    pos_tgt = batch.tag_tgt
                 else:
                     pos_src = None
                     pos_tgt = None
@@ -358,9 +358,9 @@ class Trainer(object):
             tgt_outer = batch.tgt
             # TODO(yida) train
             if "tag" in self.model.generators.keys():
-                pos_src, _ = batch.pos_src \
-                    if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
-                pos_outer = batch.pos_tgt
+                pos_src, _ = batch.tag_src \
+                    if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
+                pos_outer = batch.tag_tgt
             else:
                 pos_src = None
                 pos_outer = None

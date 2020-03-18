@@ -170,10 +170,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     # TODO(yida) Build pos embeddings
     pos_src_emb, pos_tgt_emb = None, None
     if model_opt.pos_enc:
-        pos_src_field = fields["pos_src"]
+        pos_src_field = fields["tag_src"]
         pos_src_emb = build_embeddings(model_opt, pos_src_field, pos=True)
     if model_opt.pos_dec:
-        pos_tgt_field = fields["pos_tgt"]
+        pos_tgt_field = fields["tag_src"]
         pos_tgt_emb = build_embeddings(model_opt, pos_tgt_field, for_encoder=False, pos=True)
     encoder = build_encoder(model_opt, src_emb, pos_src_emb)
     decoder = build_decoder(model_opt, tgt_emb, pos_tgt_emb)
@@ -201,7 +201,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             if v == "0":
                 v = len(fields["tgt"].base_field.vocab)
             if k == "tag":
-                v = len(fields["pos_tgt"].base_field.vocab)
+                continue
             generators[k] = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size, int(v)),
                 Cast(torch.float32)
@@ -214,7 +214,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         if model_opt.tag_gen:
             generators["tag"] = nn.Sequential(
                 nn.Linear(model_opt.dec_rnn_size,
-                          len(fields["pos_tgt"].base_field.vocab)),
+                          len(fields["tag_tgt"].base_field.vocab)),
                 Cast(torch.float32),
                 gen_func
             )

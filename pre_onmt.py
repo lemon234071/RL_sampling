@@ -235,7 +235,7 @@ def freq_onmt(rootdir, out_dir, high_num, vocab_len):
                 else:
                     tag_seq.append("low")
             if "tgt" in name:  # for eos
-                tag_seq.append("1")
+                tag_seq.append("high")
                 high_n += 1
                 seq_len += 1
 
