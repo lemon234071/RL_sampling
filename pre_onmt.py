@@ -784,7 +784,7 @@ def main():
 
     # freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
 
-    freq_onmt("data/opensubtitle/", "data/opensubtitle/freq/", 150, 50000)
+    freq_onmt("data/opensubtitle/", "data/opensubtitle/freq/", 100, 50000)
     print(1)
 
 
