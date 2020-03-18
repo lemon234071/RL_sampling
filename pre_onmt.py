@@ -188,6 +188,27 @@ def freq_onmt(rootdir, out_dir, high_num, vocab_len):
     itoj = [i for i in range(4 + high_num)] + [i for i in range(vocab_len - high_num)]
     save_json(itoj, os.path.join(out_dir, "itoj.json"))
 
+    if not os.path.exists(out_dir + "vocab.txt"):
+        vocab = collections.Counter()
+        posts = load_txt(os.path.join(rootdir, "src-train.txt"))
+        resps = load_txt(os.path.join(rootdir, "tgt-train.txt"))
+        for post, resp in tqdm(zip(posts, resps)):
+            try:
+                assert len(post) > 0 and len(resp) > 0
+            except:
+                import pdb
+                pdb.set_trace()
+            for seq in [post, resp]:
+                seq_list = seq.strip().lower().split()
+                vocab.update(seq_list)
+        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)[:vocab_len]
+        print(len(vocab), "len vocab")
+        vocab = [x[0] for x in vocab]
+        save_txt("\n".join(vocab), out_dir + "vocab.txt")
+    else:
+        vocab = load_txt(out_dir + "vocab.txt")
+    print(len(vocab), "vocab")
+
     file_list = os.listdir(rootdir)
     vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
     high_freq = set([x for x in vocab[: high_num]])
@@ -763,7 +784,7 @@ def main():
 
     # freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
 
-    freq_onmt("data/opensubtitle/", "data/opensubtitle/freq/", 150, 80000)
+    freq_onmt("data/opensubtitle/", "data/opensubtitle/freq/", 150, 50000)
     print(1)
 
 
