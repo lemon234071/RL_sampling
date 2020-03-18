@@ -343,17 +343,17 @@ def _build_fields_vocab(fields, counters, data_type, share_vocab,
         build_fv_args,
         size_multiple=vocab_size_multiple if not share_vocab else 1)
     # TODO(yida) preprocess
-    build_fv_args["pos_src"] = dict(
+    build_fv_args["tag_src"] = dict(
         max_size=src_vocab_size, min_freq=src_words_min_frequency)
-    build_fv_args["pos_tgt"] = dict(
+    build_fv_args["tag_tgt"] = dict(
         max_size=tgt_vocab_size, min_freq=tgt_words_min_frequency)
-    pos_src_multifield = fields["pos_src"]
+    pos_src_multifield = fields["tag_src"]
     _build_fv_from_multifield(
         pos_src_multifield,
         counters,
         build_fv_args,
         size_multiple=vocab_size_multiple if not share_vocab else 1)
-    pos_tgt_multifield = fields["pos_tgt"]
+    pos_tgt_multifield = fields["tag_tgt"]
     _build_fv_from_multifield(
         pos_tgt_multifield,
         counters,
