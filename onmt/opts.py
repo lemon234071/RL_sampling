@@ -133,8 +133,6 @@ def model_opts(parser):
     # yida model
     group.add('--itoj', '-itoj', type=str, default="",
               help="Mapping vocab to sub-vocab")
-    group.add('--high_num', '-high_num', required=True, type=int,
-              help="high freq number")
     group.add('--t_gen', '-t_gen', action='store_true',
               help="t_gen")
     group.add('--mask_attn', '-mask_attn', action='store_true',
@@ -146,8 +144,6 @@ def model_opts(parser):
               help="ls_gen.")
     group.add('--generators', '-generators', type=str, default="generator:0",
               help="Generators.")
-    group.add('--high_rate', '-high_rate', type=float, default=0.003,
-              help="high words rate of the voacb.")
     group.add('--pos_enc', '-pos_enc', action="store_true",
               help="Use or not pos_enc.")
     group.add('--pos_dec', '-pos_dec', action="store_true",
@@ -596,6 +592,10 @@ def train_opts(parser):
               type=int, default=3, choices=[3, 1],
               help="Using grayscale image can training "
                    "model faster and smaller")
+
+    # yida train
+    group.add('--high_num', '-high_num', required=True, type=int,
+              help="high freq number")
 
 
 def translate_opts(parser):
