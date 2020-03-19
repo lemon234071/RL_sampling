@@ -520,7 +520,7 @@ class Translator(object):
         # for mask attn
         tag_src = None
         if hasattr(batch, "tag_src"):
-            tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+            tag_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
 
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
@@ -621,7 +621,7 @@ class Translator(object):
 
         # yida translate
         if self.model.tag_enc:
-            pos_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
+            pos_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
         else:
             pos_src = None
         enc_states, memory_bank, src_lengths = self.model.encoder(
