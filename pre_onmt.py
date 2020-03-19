@@ -790,3 +790,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # freq_mask = {"high": [False] * 50004, "low": [False] * 50004}
+    # freq_mask["high"][:104] = [True] * 104
+    # freq_mask["low"][104:] = [True] * (50004 - 104)
+    # save_json(freq_mask, "freq_mask.json")
