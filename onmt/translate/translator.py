@@ -658,9 +658,10 @@ class Translator(object):
         # and [src_len, batch, hidden] as memory_bank
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
+        tag_gen = self.model.generators["tag"] if "tag" in self.model.generators else None
         dec_out, dec_attn, rnn_outs = self.model.decoder(
             # yida translate
-            decoder_in, memory_bank, self.model.generators["tag"],
+            decoder_in, memory_bank, tag_gen,
             tag_src, tag_decoder_in, memory_lengths=memory_lengths, step=step
         )
 
