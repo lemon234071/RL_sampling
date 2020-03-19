@@ -251,7 +251,7 @@ class Translator(object):
         self.tag_mask = load_json(tag_mask_path)
         for k in self.tag_mask:
             self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
-        self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
+        self.tag_vocab = dict(self.fields)["tag_tgt"].base_field.vocab.stoi
 
         self.rl_model.train()
         self.model.eval()
@@ -356,7 +356,7 @@ class Translator(object):
             self.fields,
             readers=([self.src_reader, self.tgt_reader]
                      if test_tag_src is not None else [self.src_reader]),
-            data=[("src", test_src), ("pos_src", test_tag_src)]
+            data=[("src", test_src), ("tag_src", test_tag_src)]
             if test_tag_src is not None else [("src", test_src)],
             dirs=[None, None],
             sort_key=inputters.str2sortkey[self.data_type],
@@ -437,7 +437,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
                      if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt), ("pos_src", train_tag_src), ("pos_tgt", train_tag_tgt)]
+            data=[("src", train_src), ("tgt", train_tgt), ("tag_src", train_tag_src), ("tag_tgt", train_tag_tgt)]
             if train_tag_tgt is not None else [("src", train_src), ("tgt", train_tgt)],
             dirs=[src_dir, None, None, None],
             sort_key=inputters.str2sortkey[self.data_type],
@@ -460,7 +460,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
                      if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt), ("pos_src", valid_tag_src), ("pos_tgt", valid_tag_tgt)]
+            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_src", valid_tag_src), ("tag_tgt", valid_tag_tgt)]
             if train_tag_tgt is not None else [("src", valid_src), ("tgt", valid_tgt)],
             dirs=[src_dir, None, None, None],
             sort_key=inputters.str2sortkey[self.data_type],

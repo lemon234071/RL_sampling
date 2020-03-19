@@ -347,7 +347,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
                      if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
-            data=[("src", train_src), ("tgt", train_tgt), ("pos_src", train_tag_src), ("pos_tgt", train_tag_tgt)]
+            data=[("src", train_src), ("tgt", train_tgt), ("d", train_tag_src), ("tag_tgt", train_tag_tgt)]
             if train_tag_tgt is not None else [("src", train_src), ("tgt", train_tgt)],
             dirs=[src_dir, None, None, None] if train_tag_tgt is not None else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],
@@ -370,7 +370,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader, self.tgt_reader, self.tgt_reader]
                      if train_tag_tgt is not None else [self.src_reader, self.tgt_reader]),
-            data=[("src", valid_src), ("tgt", valid_tgt), ("pos_src", valid_tag_src), ("pos_tgt", valid_tag_tgt)]
+            data=[("src", valid_src), ("tgt", valid_tgt), ("tag_src", valid_tag_src), ("tag_tgt", valid_tag_tgt)]
             if train_tag_tgt is not None else [("src", valid_src), ("tgt", valid_tgt)],
             dirs=[src_dir, None, None, None] if train_tag_tgt is not None else [src_dir, None],
             sort_key=inputters.str2sortkey[self.data_type],

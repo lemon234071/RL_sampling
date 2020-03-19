@@ -364,7 +364,7 @@ class Trainer(object):
             else:
                 pos_src = None
                 pos_outer = None
-            #pos_outer = batch.pos_tgt if hasattr(batch, "pos_tgt") else None
+            # pos_outer = batch.pos_tgt if hasattr(batch, "tag_tgt") else None
 
             bptt = False
             for j in range(0, target_size-1, trunc_size):

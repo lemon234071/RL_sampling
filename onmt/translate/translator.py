@@ -198,7 +198,7 @@ class Translator(object):
         self.tag_mask = load_json(tag_mask_path)
         for k in self.tag_mask:
             self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
-        self.tag_vocab = dict(self.fields)["pos_tgt"].base_field.vocab.stoi
+        self.tag_vocab = dict(self.fields)["tag_tgt"].base_field.vocab.stoi
         print("sample_method", sample_method)
         # for debugging
         self.beam_trace = self.dump_beam != ""
@@ -329,7 +329,7 @@ class Translator(object):
             # yida translate
             readers=([self.src_reader, self.tgt_reader]
                      if tag_src else [self.src_reader, self.tgt_reader]),
-            data=[("src", src), ("pos_src", tag_src)] if tag_src else [("src", src)],
+            data=[("src", src), ("tag_src", tag_src)] if tag_src else [("src", src)],
             dirs=[src_dir, None] if tag_src else [src_dir],
             sort_key=inputters.str2sortkey[self.data_type],
             filter_pred=self._filter_pred
@@ -519,7 +519,7 @@ class Translator(object):
 
         # for mask attn
         tag_src = None
-        if hasattr(batch, "pos_src"):
+        if hasattr(batch, "tag_src"):
             tag_src, _ = batch.pos_src if isinstance(batch.pos_src, tuple) else (batch.pos_src, None)
 
         random_sampler = RandomSampling(

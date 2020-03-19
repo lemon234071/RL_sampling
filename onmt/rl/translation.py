@@ -61,7 +61,7 @@ class TranslationBuilder(object):
     def _build_target_tokens_pos(self, src, src_vocab, src_raw, pred, pos_pred, attn):
         tgt_field = dict(self.fields)["tgt"].base_field
         vocab = tgt_field.vocab
-        pos_field = dict(self.fields)["pos_tgt"].base_field
+        pos_field = dict(self.fields)["tag_tgt"].base_field
         pos_vocab = pos_field.vocab
         pos_tokens = []
         tokens = []
