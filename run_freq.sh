@@ -31,7 +31,7 @@ elif [ "$2" = "infer" ]; then
     -src "$DATA_DIR"/src-test.txt -max_length 30 -tag_src "$DATA_DIR"/"$DATASET"/"$DATASET"-src-test.txt
 elif [ "$2" = "rl_train" ]; then
   CUDA_VISIBLE_DEVICES="$1" python3 rl_train.py -gpu 0 -model "$3" -sample_method "$4" \
-    -generators high:104, low:49900 -tag_mask "$DATA_DIR"/"$DATASET"_mask.json -rl_samples 4 -epochs 3 \
+    -generators high:104,low:49900 -tag_mask "$DATA_DIR"/"$DATASET"_mask.json -rl_samples 4 -epochs 3 \
     -batch_size 1024 -report_every 10 -valid_steps 50 -save_checkpoint_steps 100 -random_steps 400 \
     -learning_rate 0.002 -learning_rate_decay 0.8 -start_decay_steps 5000 -decay_steps 200 \
     -output result/rl_"$DATA_DIR"_"$DATASET"_"$4"_"$5".txt -save_model rl_checkpoint/mlp_"$4"_"$5" \

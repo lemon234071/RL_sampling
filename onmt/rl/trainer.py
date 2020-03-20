@@ -642,7 +642,7 @@ class Translator(object):
         return loss
 
     def _compute_reward(self, metric_dict):
-        reward = metric_dict["bleu"] * 100 + metric_dict["dist"]
+        reward = metric_dict["bleu"] * 60 + metric_dict["dist"]
         return reward
 
     def tid2t(self, t_ids):
