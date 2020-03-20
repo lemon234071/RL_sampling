@@ -200,12 +200,6 @@ class GlobalAttention(nn.Module):
             align_vectors = sparsemax(align.view(batch*target_l, source_l), -1)
         align_vectors = align_vectors.view(batch, target_l, source_l)
 
-        # if torch.isnan(align_vectors).any().item():
-        #     print(2)
-        #     nan_mask = torch.isnan(align_vectors)
-        #     align_vectors[nan_mask] = 0.0
-
-
         # each context vector c_t is the weighted average
         # over all the source hidden states
         c = torch.bmm(align_vectors, memory_bank)

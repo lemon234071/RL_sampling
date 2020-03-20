@@ -195,9 +195,10 @@ class Translator(object):
         self._filter_pred = None
 
         self.sample_method = sample_method
-        self.tag_mask = load_json(tag_mask_path)
-        for k in self.tag_mask:
-            self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
+        if tag_mask_path:
+            self.tag_mask = load_json(tag_mask_path)
+            for k in self.tag_mask:
+                self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
         self.tag_vocab = dict(self.fields)["tag_tgt"].base_field.vocab.stoi
         print("sample_method", sample_method)
         # for debugging
@@ -283,7 +284,7 @@ class Translator(object):
 
     def _gold_score(self, batch, memory_bank, src_lengths, src_vocabs,
                     use_src_map, enc_states, batch_size, src):
-        if "tgt1" in batch.__dict__:
+        if "tgt" in batch.__dict__:
             gs = self._score_target(
                 batch, memory_bank, src_lengths, src_vocabs,
                 batch.src_map if use_src_map else None)
@@ -692,11 +693,6 @@ class Translator(object):
                         k_logits = gen(k_output)
                         mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
                         log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
-                temp = log_probs.max(1)[0].lt(-100).sum().item()
-                try:
-                    assert temp <= 0
-                except:
-                    print(1)
             else:
                 logits = self.model.generators["generator"](dec_out.squeeze(0))
                 log_probs = torch.log_softmax(logits, dim=-1)

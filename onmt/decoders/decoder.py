@@ -142,7 +142,6 @@ class RNNDecoderBase(DecoderBase):
         if self._reuse_copy_attn and not self.attentional:
             raise ValueError("Cannot reuse copy attention with no attention.")
 
-    # TODO(yida) decoder class
     @classmethod
     def from_opt(cls, opt, embeddings, pos_embeddings=None):
         """Alternate constructor."""
@@ -165,7 +164,6 @@ class RNNDecoderBase(DecoderBase):
 
     def init_state(self, src, memory_bank, encoder_final):
         """Initialize decoder state with last state of the encoder."""
-
         def _fix_enc_hidden(hidden):
             # The encoder hidden is  (layers*directions) x batch x dim.
             # We need to convert it to layers x batch x (directions*dim).
@@ -392,8 +390,6 @@ class InputFeedRNNDecoder(RNNDecoderBase):
             attns["coverage"] = []
 
         emb = self.embeddings(tgt)
-        if torch.isnan(emb).any().item():
-            print(2)
         assert emb.dim() == 3  # len x batch x embedding_dim
 
         dec_state = self.state["hidden"]
