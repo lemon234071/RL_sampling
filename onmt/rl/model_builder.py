@@ -13,6 +13,7 @@ from onmt.decoders import str2dec
 from onmt.encoders import str2enc
 from onmt.modules import Embeddings, VecEmbedding
 from onmt.modules.util_class import Cast
+from onmt.rl.global_attention import GlobalAttention
 from onmt.utils.logging import logger
 from onmt.utils.misc import use_gpu
 from onmt.utils.parse import ArgumentParser
@@ -164,38 +165,61 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
     output_size = 54 if model_opt.sample_method == "topk" else 20
 
+    models = {}
     generators = {}
     for i, kv in enumerate(model_opt.generators.split(",")):
         k, _ = kv.split(":")
         # output_size = 54 if k == "0" else output_size
-        generators[k] = nn.Sequential(
+        models[k + "_m"] = nn.Sequential(
             nn.Linear(input_size,
                       input_size),
             Cast(torch.float32),
             # nn.BatchNorm1d(model_opt.enc_rnn_size),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout()
+        )
+        generators[k] = nn.Sequential(
             nn.Linear(input_size, output_size),
             Cast(torch.float32),
             gen_func
         )
 
     class TMEPModel(nn.Module):
-        def __init__(self, gens):
+        def __init__(self, ms, gens, hidden_size, attentional=False, attn_type="mlp"):
             super(TMEPModel, self).__init__()
+            self.models = ms
             self.generators = gens
+            if not attentional:
+                self.attn = None
+            else:
+                self.attn = GlobalAttention(
+                    hidden_size, attn_type=attn_type
+                )
 
-        def forward(self, inputs, fix_k=None):
+        def forward(self, inputs, tag_vocab, fix_k=None, memory_bank=None, memory_lengths=None, tag_src=None):
             outputs = {}
+            for name, m in self.models.items():
+                name = name.replace("_m", "")
+                outputs[name] = m(inputs)
+                if self.attn is not None:
+                    outputs[name], p_attn = self.attn(
+                        outputs[name],
+                        memory_bank.transpose(0, 1),
+                        tag_src,
+                        tag_vocab[name],
+                        memory_lengths=memory_lengths)
+
             for name, gen in self.generators.items():
                 if name == fix_k:
                     with torch.no_grad():
-                        outputs[name] = gen(inputs)
+                        outputs[name] = gen(outputs[name])
                 else:
-                    outputs[name] = gen(inputs)
+                    outputs[name] = gen(outputs[name])
             return outputs
 
-    model = TMEPModel(generators)
+    model = TMEPModel(models, generators, input_size, attentional=True)
+    for k, v in model.models.items():
+        setattr(model, k, v)
     for k, v in model.generators.items():
         setattr(model, k, v)
         # v.to(device)

@@ -547,7 +547,8 @@ class Translator(object):
         fix_k = None
 
         inputs = enc_states[-1].squeeze()
-        log_probs = self.rl_model(inputs, str(fix_k))
+        log_probs = self.rl_model(inputs, self.tag_vocab, fix_k=str(fix_k),
+                                  memory_bank=memory_bank, memory_lengths=src_lengths, tag_src=batch.tag_src[0])
         # log_probs["1"].detach()
 
         # compute loss
@@ -682,7 +683,8 @@ class Translator(object):
                 inputs = enc_states[-1].squeeze()
 
                 # F-prop through the model.
-                log_probs = self.rl_model(inputs)
+                log_probs = self.rl_model(inputs, self.tag_vocab,
+                                          memory_bank=memory_bank, memory_lengths=src_lengths, tag_src=batch.tag_src[0])
                 if not (infer or self.sta):
                     learned_t = {}
                     loss_t = torch.tensor(0, dtype=torch.float, device=self._dev)
