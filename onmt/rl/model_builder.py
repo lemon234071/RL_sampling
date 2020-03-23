@@ -189,20 +189,24 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             super(TMEPModel, self).__init__()
             self.models = ms
             self.generators = gens
-            if not attentional:
-                self.attn = None
-            else:
-                self.attn = GlobalAttention(
-                    hidden_size, attn_type=attn_type
-                )
+            self.attentional = attentional
+            if attentional:
+                for ka in gens.keys():
+                    setattr(self, "attn_" + ka, GlobalAttention(
+                        hidden_size, attn_type=attn_type
+                    ))
+                # self.attn = GlobalAttention(
+                #     hidden_size, attn_type=attn_type
+                # )
 
         def forward(self, inputs, tag_vocab, fix_k=None, memory_bank=None, memory_lengths=None, tag_src=None):
             outputs = {}
             for name, m in self.models.items():
                 name = name.replace("_m", "")
                 outputs[name] = m(inputs)
-                if self.attn is not None:
-                    outputs[name], p_attn = self.attn(
+                if self.attentional is not None:
+                    attn = getattr(self, "attn_" + name)
+                    outputs[name], p_attn = attn(
                         outputs[name],
                         memory_bank.transpose(0, 1),
                         tag_src,
