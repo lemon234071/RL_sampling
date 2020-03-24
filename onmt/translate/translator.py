@@ -136,6 +136,7 @@ class Translator(object):
             logger=None,
             sample_method="greedy",
             tag_mask_path="",
+            mask_attn=False,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -200,6 +201,7 @@ class Translator(object):
             for k in self.tag_mask:
                 self.tag_mask[k] = torch.tensor(self.tag_mask[k], dtype=torch.float, device=self._dev).unsqueeze(0)
         self.tag_vocab = dict(self.fields)["tag_tgt"].base_field.vocab.stoi
+        self.mask_attn = mask_attn
         print("sample_method", sample_method)
         # for debugging
         self.beam_trace = self.dump_beam != ""
@@ -274,6 +276,7 @@ class Translator(object):
             logger=logger,
             sample_method=opt.sample_method,
             tag_mask_path=opt.tag_mask,
+            mask_attn=model_opt.mask_attn,
             seed=opt.seed)
 
     def _log(self, msg):
@@ -520,7 +523,7 @@ class Translator(object):
 
         # for mask attn
         tag_src = None
-        if hasattr(batch, "tag_src"):
+        if hasattr(batch, "tag_src") and self.mask_attn:
             tag_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
 
         random_sampler = RandomSampling(

@@ -162,6 +162,7 @@ class Translator(object):
             logger=None,
             sample_method="freq",
             tag_mask_path="",
+            mask_attn=False,
             epochs=4,
             samples_n=2,
             report_every=5,
@@ -237,6 +238,7 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
+        self.mask_attn = mask_attn
         self.sta = sta
         self.epochs = 1 if sta else epochs
         self.report_every = report_every
@@ -328,6 +330,7 @@ class Translator(object):
             samples_n=opt.rl_samples,
             sample_method=opt.sample_method,
             tag_mask_path=opt.tag_mask,
+            mask_attn=model_opt.mask_attn,
             sta=opt.statistic,
             #
             seed=opt.seed)
@@ -547,8 +550,7 @@ class Translator(object):
         fix_k = None
 
         inputs = enc_states[-1].squeeze()
-        log_probs = self.rl_model(inputs, self.tag_vocab, fix_k=str(fix_k),
-                                  memory_bank=memory_bank, memory_lengths=src_lengths, tag_src=batch.tag_src[0])
+        log_probs = self.rl_model(inputs, fix_k=str(fix_k))
         # log_probs["1"].detach()
 
         # compute loss
@@ -683,8 +685,7 @@ class Translator(object):
                 inputs = enc_states[-1].squeeze()
 
                 # F-prop through the model.
-                log_probs = self.rl_model(inputs, self.tag_vocab,
-                                          memory_bank=memory_bank, memory_lengths=src_lengths, tag_src=batch.tag_src[0])
+                log_probs = self.rl_model(inputs)
                 if not (infer or self.sta):
                     learned_t = {}
                     loss_t = torch.tensor(0, dtype=torch.float, device=self._dev)
@@ -827,7 +828,9 @@ class Translator(object):
         else:
             mb_device = memory_bank.device
 
-        tag_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
+        tag_src = None
+        if self.mask_attn:
+            tag_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
 
         random_sampler = RandomSampling(
             self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
