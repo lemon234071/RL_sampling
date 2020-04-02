@@ -184,11 +184,50 @@ def onmt_opensubtitle(dir_path, out_dir):
     save_json(vocab_json, out_dir + "vocab.json")
 
 
+def onmt_stc(dir_path, out_dir):
+    file_list = os.listdir(dir_path)
+    vocab = collections.Counter()
+    for file in file_list:
+        if "unique" in file:
+            continue
+        name = file[file.rindex(".") + 1:]
+        print(name)
+        post_path = os.path.join(dir_path, file)
+        line = load_txt(post_path)
+        post, response = line.split("\t")
+        data = [[x, y] for x, y in zip(post, response)]
+        if "train" in file:
+            random.shuffle(data)
+
+        src = []
+        tgt = []
+
+        for dialog in tqdm(data, mininterval=1):
+            post_list = dialog[0].strip().split()
+            resp_list = dialog[1].strip().split(0)
+            if "train" in file:
+                vocab.update(post_list)
+                vocab.update(resp_list)
+
+            src.append(dialog[0])
+            tgt.append(dialog[1])
+
+        assert len(src) == len(tgt)
+        save_txt("\n".join(src), os.path.join(out_dir, "src-" + name + ".txt"))
+        save_txt("\n".join(tgt), os.path.join(out_dir, "tgt-" + name + ".txt"))
+    vocab_json = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
+    save_json(vocab_json, out_dir + "vocab.json")
+
+
 def freq_onmt(rootdir, out_dir, high_num, vocab_len):
     itoj = [i for i in range(4 + high_num)] + [i for i in range(vocab_len - high_num)]
-    save_json(itoj, os.path.join(out_dir, "itoj.json"))
+    save_json(itoj, os.path.join(out_dir, "freq_itoj.json"))
+    freq_mask = {"high": [False] * (vocab_len + 4), "low": [False] * (vocab_len + 4)}
+    freq_mask["high"][:high_num + 4] = [True] * (high_num + 4)
+    freq_mask["low"][high_num + 4:] = [True] * (vocab_len - high_num)
+    save_json(freq_mask, out_dir + "freq_mask.json")
 
-    if not os.path.exists(out_dir + "vocab.txt"):
+    if not os.path.exists(out_dir + "vocab.json"):
         vocab = collections.Counter()
         posts = load_txt(os.path.join(rootdir, "src-train.txt"))
         resps = load_txt(os.path.join(rootdir, "tgt-train.txt"))
@@ -201,16 +240,18 @@ def freq_onmt(rootdir, out_dir, high_num, vocab_len):
             for seq in [post, resp]:
                 seq_list = seq.strip().lower().split()
                 vocab.update(seq_list)
-        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)[:vocab_len]
-        print(len(vocab), "len vocab")
-        vocab = [x[0] for x in vocab]
+        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
+        print(len(vocab), "all len vocab")
+        save_txt("\n".join(vocab), out_dir + "vocab.json")
+        vocab = [x[0] for x in vocab][:vocab_len]
         save_txt("\n".join(vocab), out_dir + "vocab.txt")
     else:
-        vocab = load_txt(out_dir + "vocab.txt")
+        vocab = load_txt(out_dir + "vocab.json")
+        vocab = [x[0] for x in vocab][:vocab_len]
     print(len(vocab), "vocab")
 
     file_list = os.listdir(rootdir)
-    vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
+    # vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
     high_freq = set([x for x in vocab[: high_num]])
     print(len(high_freq), "len high")
 
@@ -768,10 +809,12 @@ def main():
 
     # onmt_reddit("/home/wangyida/data/reddit/200W_data.txt", "/home/wangyida/data/onmt_data/")
     # convert_vocab()
+
     # onmt_opensubtitle("/home/wangyida/git/OpenSubtitle/opensubtitles/", "/home/wangyida/git/OpenSubtitle/OpenNMT-py/data/")
     # freq_opensub("/home/wangyida/git/onmt_nlp/", "/home/wangyida/git/onmt_nlp/data/freq/")
     # convert_vocab()
     # pos_onmt()
+
     # freq_reddit("/home/wangyida/git/onmt_nlp/", "/home/wangyida/git/onmt_nlp/data_reddit/freq/")
 
     # freq_reddit_json("data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
@@ -784,13 +827,11 @@ def main():
 
     # freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
 
-    freq_onmt("data/opensubtitle/", "data/opensubtitle/freq2/", 150, 50000)
+    # freq_onmt("data/opensubtitle/", "data/opensubtitle/freq2/", 150, 50000)
+    onmt_stc("/home/wangyida/git/data/weibo_utf8/", "data_stc/")
+    freq_onmt("data_stc/", "data_stc/freq/", 150, 50000)
     print(1)
 
 
 if __name__ == '__main__':
     main()
-    # freq_mask = {"high": [False] * 50004, "low": [False] * 50004}
-    # freq_mask["high"][:104] = [True] * 104
-    # freq_mask["low"][104:] = [True] * (50004 - 104)
-    # save_json(freq_mask, "freq_mask.json")
