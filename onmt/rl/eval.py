@@ -53,14 +53,14 @@ def eval_distinct(hyps_resp):
         return
 
     hyps_resp = [(' '.join(i)).split() for i in hyps_resp]
-    num_tokens = sum([len(i) for i in hyps_resp])
-    dist1 = count_ngram(hyps_resp, 1) / float(num_tokens)
-    dist2 = count_ngram(hyps_resp, 2) / float(num_tokens)
+    # num_tokens = sum([len(i) for i in hyps_resp])
+    dist1 = count_ngram_avg(hyps_resp, 1)
+    dist2 = count_ngram_avg(hyps_resp, 2)
 
     return [dist1, dist2]
 
 
-def count_ngram(hyps_resp, n):
+def count_ngram_avg(hyps_resp, n):
     """
     Count the number of unique n-grams
     :param hyps_resp: list, a list of responses
@@ -76,10 +76,12 @@ def count_ngram(hyps_resp, n):
             type(hyps_resp[0])))
         return
 
+    tokens = 0
     ngram = set()
     for resp in hyps_resp:
         if len(resp) < n:
             continue
         for i in range(len(resp) - n + 1):
             ngram.add(' '.join(resp[i: i + n]))
-    return len(ngram)
+            tokens += 1
+    return len(ngram) / tokens

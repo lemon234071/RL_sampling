@@ -184,42 +184,117 @@ def onmt_opensubtitle(dir_path, out_dir):
     save_json(vocab_json, out_dir + "vocab.json")
 
 
-def onmt_stc(dir_path, out_dir):
+def onmt_stc(dir_path, out_dir, vocab_len):
     file_list = os.listdir(dir_path)
     vocab = collections.Counter()
+
+    if os.path.exists(os.path.join(out_dir, "vocab.json")):
+        vocab = load_json(os.path.join(out_dir, "vocab.json"))
+    else:
+        for file in file_list:
+            if "train" not in file:
+                continue
+            name = file[file.rindex(".") + 1:]
+            print(name)
+            post_path = os.path.join(dir_path, file)
+            raw_data = load_txt(post_path)
+            print(len(raw_data), "len")
+            data = []
+            for line in raw_data:
+                line = line.strip().split("\t")
+                if len(line) == 2 and len(line[0]) > 0 and len(line[1]) > 0:
+                    data.append(line)
+                else:
+                    print(line)
+
+            print(data[0])
+
+            for dialog in tqdm(data, mininterval=1):
+                post_list = dialog[0].strip().split()
+                resp_list = dialog[1].strip().split()
+                vocab.update(post_list)
+                vocab.update(resp_list)
+
+        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
+        save_json(vocab, out_dir + "vocab.json")
+
+    vocab, low_vocab = split_vocab(vocab, vocab_len)
+    save_txt(vocab, out_dir + "vocab.txt")
+    save_txt(list(low_vocab), out_dir + "low_vocab.txt")
+
     for file in file_list:
         if "unique" in file:
             continue
         name = file[file.rindex(".") + 1:]
         print(name)
         post_path = os.path.join(dir_path, file)
-        line = load_txt(post_path)
-        post, response = line.split("\t")
-        data = [[x, y] for x, y in zip(post, response)]
-        if "train" in file:
-            random.shuffle(data)
+        raw_data = load_txt(post_path)
+        print(len(raw_data), "len")
+        data = []
+        for line in raw_data:
+            line = line.strip().split("\t")
+            if len(line) == 2 and len(line[0]) > 0 and len(line[1]) > 0:
+                data.append(line)
+            else:
+                print(line)
+
+        print(data[0])
 
         src = []
         tgt = []
-
         for dialog in tqdm(data, mininterval=1):
             post_list = dialog[0].strip().split()
-            resp_list = dialog[1].strip().split(0)
-            if "train" in file:
-                vocab.update(post_list)
-                vocab.update(resp_list)
+            resp_list = dialog[1].strip().split()
+            post = []
+            resp = []
+            for word in post_list:
+                if word in low_vocab:
+                    import pdb
+                    pdb.set_trace()
+                    for c in list(word):
+                        post.append(c)
+                else:
+                    post.append(word)
+            for word in resp_list:
+                if word in low_vocab:
+                    for c in list(word):
+                        resp.append(c)
+                else:
+                    resp.append(word)
 
-            src.append(dialog[0])
-            tgt.append(dialog[1])
+            src.append(" ".join(post))
+            tgt.append(" ".join(resp))
 
         assert len(src) == len(tgt)
         save_txt("\n".join(src), os.path.join(out_dir, "src-" + name + ".txt"))
         save_txt("\n".join(tgt), os.path.join(out_dir, "tgt-" + name + ".txt"))
-    vocab_json = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
-    save_json(vocab_json, out_dir + "vocab.json")
+
+
+def split_vocab(vocab, vocab_len, freq=4):
+    temp = [(x, y) for x, y in vocab if y > freq]
+    print(temp[-1][-1])
+    if len(temp) <= vocab_len:
+        return [x for x, y in vocab[:vocab_len]]
+    else:
+        low_vocab = list()
+        new_vocab = collections.Counter()
+        for x, y in temp:
+            new_vocab[x] = y
+        print(len(new_vocab))
+        print(new_vocab[temp[0][0]])
+        while len(new_vocab) > vocab_len:
+            low_vocab.append(temp[-1][0])
+            new_vocab.pop(temp[-1][0])
+            for c in list(temp[-1][0]):
+                new_vocab.update([c for i in range(temp[-1][1])])
+            temp = temp[:-1]
+        vocab = [x for x, y in sorted(new_vocab.items(), key=lambda x: x[1], reverse=True)]
+        return vocab, set(low_vocab)
 
 
 def freq_onmt(rootdir, out_dir, high_num, vocab_len):
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
     itoj = [i for i in range(4 + high_num)] + [i for i in range(vocab_len - high_num)]
     save_json(itoj, os.path.join(out_dir, "freq_itoj.json"))
     freq_mask = {"high": [False] * (vocab_len + 4), "low": [False] * (vocab_len + 4)}
@@ -227,28 +302,7 @@ def freq_onmt(rootdir, out_dir, high_num, vocab_len):
     freq_mask["low"][high_num + 4:] = [True] * (vocab_len - high_num)
     save_json(freq_mask, out_dir + "freq_mask.json")
 
-    if not os.path.exists(out_dir + "vocab.json"):
-        vocab = collections.Counter()
-        posts = load_txt(os.path.join(rootdir, "src-train.txt"))
-        resps = load_txt(os.path.join(rootdir, "tgt-train.txt"))
-        for post, resp in tqdm(zip(posts, resps)):
-            try:
-                assert len(post) > 0 and len(resp) > 0
-            except:
-                import pdb
-                pdb.set_trace()
-            for seq in [post, resp]:
-                seq_list = seq.strip().lower().split()
-                vocab.update(seq_list)
-        vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
-        print(len(vocab), "all len vocab")
-        save_txt("\n".join(vocab), out_dir + "vocab.json")
-        vocab = [x[0] for x in vocab][:vocab_len]
-        save_txt("\n".join(vocab), out_dir + "vocab.txt")
-    else:
-        vocab = load_txt(out_dir + "vocab.json")
-        vocab = [x[0] for x in vocab][:vocab_len]
-    print(len(vocab), "vocab")
+    vocab = load_txt(os.path.join(rootdir, "vocab.txt"))
 
     file_list = os.listdir(rootdir)
     # vocab = [x[0] for x in load_json(rootdir + "vocab.json")[:vocab_len]]
@@ -828,8 +882,8 @@ def main():
     # freq_reddit_json("freq", "data_raw/reddit_small_single.json", "data_reddit_small/", 0.003, 50000)
 
     # freq_onmt("data/opensubtitle/", "data/opensubtitle/freq2/", 150, 50000)
-    onmt_stc("/home/wangyida/git/data/weibo_utf8/", "data_stc/")
-    freq_onmt("data_stc/", "data_stc/freq/", 150, 50000)
+    onmt_stc("/home/wangyida/git/data/weibo_utf8/", "data_stc/", 50000)
+    freq_onmt("data_stc/", "data_stc/freq/", 500, 50000)
     print(1)
 
 
