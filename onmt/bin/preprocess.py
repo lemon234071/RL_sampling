@@ -48,22 +48,23 @@ def process_one_shard(corpus_params, params):
     corpus_type, fields, src_reader, tgt_reader, opt, existing_fields, \
     src_vocab, tgt_vocab = corpus_params
     # TODO(yida) preprocess
-    i, (src_shard, tgt_shard, pos_src_shard, pos_tgt_shard, maybe_id, filter_pred) = params
+    i, (src_shard, tgt_shard, tag_src_shard, tag_tgt_shard, maybe_id, filter_pred) = params
     # create one counter per shard
     sub_sub_counter = defaultdict(Counter)
     # TODO(yida) preprocess
-    assert len(src_shard) == len(tgt_shard) == len(pos_src_shard) == len(pos_tgt_shard)
+    assert len(src_shard) == len(tgt_shard) == len(tag_src_shard) == len(tag_tgt_shard)
     logger.info("Building shard %d." % i)
     dataset = inputters.Dataset(
         fields,
         readers=([src_reader, tgt_reader, src_reader, tgt_reader]
-                 if tgt_reader else [src_reader]),
+                 if tgt_reader else [src_reader, src_reader]),
         # TODO(yida) preprocess
-        data=([("src", src_shard), ("tgt", tgt_shard), ("tag_src", pos_src_shard), ("tag_tgt", pos_tgt_shard)]
-              if tgt_reader else [("src", src_shard)]),
+        data=([("src", src_shard), ("tgt", tgt_shard),
+               ("tag_src", tag_src_shard), ("tag_tgt", tag_tgt_shard)]
+              if tgt_reader else [("src", src_shard), ("tag_src", tag_src_shard)]),
         # TODO(yida) preprocess
         dirs=([opt.src_dir, None, None, None]
-              if tgt_reader else [opt.src_dir]),
+              if tgt_reader else [opt.src_dir, None]),
         sort_key=inputters.str2sortkey[opt.data_type],
         filter_pred=filter_pred
     )
@@ -139,16 +140,16 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
         tgts = opt.train_tgt
         ids = opt.train_ids
         # TODO(yida) prerocess
-        pos_srcs = opt.train_tag_src
-        pos_tgts = opt.train_tag_tgt
+        tag_srcs = opt.train_tag_src
+        tag_tgts = opt.train_tag_tgt
     elif corpus_type == 'valid':
         counters = None
         srcs = [opt.valid_src]
         tgts = [opt.valid_tgt]
         ids = [None]
         # TODO(yida) prerocess
-        pos_srcs = opt.valid_tag_src
-        pos_tgts = opt.valid_tag_tgt
+        tag_srcs = opt.valid_tag_src
+        tag_tgts = opt.valid_tag_tgt
 
     src_vocab, tgt_vocab, existing_fields = maybe_load_vocab(
         corpus_type, counters, opt)
@@ -161,7 +162,7 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
         return
 
     # TODO(yida) preprocess
-    def shard_iterator(srcs, tgts, pos_srcs, pos_tgts, ids, existing_shards,
+    def shard_iterator(srcs, tgts, tag_srcs, tag_tgts, ids, existing_shards,
                        existing_fields, corpus_type, opt):
         """
         Builds a single iterator yielding every shard of every corpus.
@@ -194,13 +195,14 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
             tgt_shards = split_corpus(tgt, opt.shard_size)
 
             # TODO(yida) preprocess
-            pos_src_shards = split_corpus(pos_srcs, opt.shard_size)
-            pos_tgt_shards = split_corpus(pos_tgts, opt.shard_size)
-            for i, (ss, ts, pss, pts) in enumerate(zip(src_shards, tgt_shards, pos_src_shards, pos_tgt_shards)):
+            tag_src_shards = split_corpus(tag_srcs, opt.shard_size)
+            tag_tgt_shards = split_corpus(tag_tgts, opt.shard_size)
+            for i, (ss, ts, pss, pts) in enumerate(zip(src_shards, tgt_shards,
+                                                       tag_src_shards, tag_tgt_shards)):
                 yield (i, (ss, ts, pss, pts, maybe_id, filter_pred))
 
     # TODO(yida) preprocess
-    shard_iter = shard_iterator(srcs, tgts, pos_srcs, pos_tgts, ids, existing_shards,
+    shard_iter = shard_iterator(srcs, tgts, tag_srcs, tag_tgts, ids, existing_shards,
                                 existing_fields, corpus_type, opt)
 
     with Pool(opt.num_threads) as p:

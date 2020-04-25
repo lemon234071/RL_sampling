@@ -69,7 +69,8 @@ def build_loss_compute(model, fields, opt, train=True):
 
     tag_field = dict(fields)["tag_tgt"].base_field
     compute = NMTLossCompute(criterion, loss_gen,
-                             criterions, model.generators, opt.itoj, opt.statistic, tag_field.vocab.stoi, opt.high_num,
+                             criterions, model.generators, opt.itoj,
+                             opt.statistic, tag_field.vocab.stoi, opt.high_num,
                              device, train=train,
                              lambda_coverage=opt.lambda_coverage)
     # if opt.copy_attn:
@@ -269,6 +270,7 @@ class NMTLossCompute(LossComputeBase):
 
         self.criterions = criterions
         self.generators = generators
+        self.multi = False if "generator" in generators else True
         self.itoj = load_json(itoj_path) if itoj_path != "" else None
         self.high_num = high_num
         self.tag_vocab = tag_vocab
@@ -334,6 +336,7 @@ class NMTLossCompute(LossComputeBase):
             self.writer.add_scalars("sta_acc",
                                     {"acc": 100 * num_correct_tag / num_non_padding_tag},
                                     self.step)
+        if self.multi:
             for k, gen in self.generators.items():
                 if k == "tag":
                     continue
@@ -343,7 +346,8 @@ class NMTLossCompute(LossComputeBase):
                     k_gtruth = gtruth[indices]
                     # if k == "0":
                     #     k_gtruth = k_gtruth - 154
-                    k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth], dtype=torch.long, device=self.device)
+                    k_gtruth = torch.tensor([self.itoj[i] for i in k_gtruth],
+                                            dtype=torch.long, device=self.device)
                     k_logits = gen(k_output)
                     k_scores = k_logits.log_softmax(dim=-1)
                     loss_dict["loss"] += self.criterions[k](k_scores, k_gtruth)
