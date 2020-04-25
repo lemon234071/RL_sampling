@@ -684,8 +684,9 @@ class Translator(object):
                 # dist = torch.distributions.Multinomial(logits=tag_log_probs, total_count=1)
                 # tag_argmax = torch.argmax(dist.sample(), dim=1)
                 # tag_index = torch.multinomial(tag_log_probs, num_samples=1)
-
-                log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                vocab_size = sum([v._modules["0"].out_features for k, v in
+                                  self.model.generators.items() if k != "tag"])
+                log_probs = torch.full([dec_out.squeeze(0).shape[0], vocab_size], -float('inf'),
                                        dtype=torch.float, device=self._dev)
                 for k, gen in self.model.generators.items():
                     if k == "tag":
