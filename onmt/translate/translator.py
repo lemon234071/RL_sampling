@@ -709,8 +709,6 @@ class Translator(object):
                         low_indices = tag_argmax.eq(self.tag_vocab["low"])
                         # logits[high_indices, high_num:] = -float("inf")
                         logits[low_indices, :high_num] = -float("inf")
-                        logits[high_indices] /= 0.4
-                        logits[low_indices] /= 1.4
                     log_probs = torch.log_softmax(logits, dim=-1)
             else:
                 logits = self.model.generators["generator"](dec_out.squeeze(0))

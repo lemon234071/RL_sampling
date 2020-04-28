@@ -1015,7 +1015,7 @@ class Translator(object):
             low_indices = tag_argmax.eq(self.tag_vocab["low"])
             pass_indices["high"] = high_indices
             pass_indices["low"] = low_indices
-            logits[high_indices, high_num:] = -float("inf")
+            # logits[high_indices, high_num:] = -float("inf")
             logits[low_indices, :high_num] = -float("inf")
             if learned_t is not None:
                 logits[high_indices] /= learned_t["high"][high_indices]
