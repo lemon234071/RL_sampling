@@ -763,7 +763,7 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida sampling
-
+    group.add('--mask_decode', '-mask_decode', action='store_true', help="mask_decode.")
     group.add('--tag_mask', '-tag_mask', default="", type=str,
               help="tag_mask path.")
     group.add('--infer', '-infer', action='store_true', help="infer.")

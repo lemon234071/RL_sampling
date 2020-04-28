@@ -97,8 +97,7 @@ class ModelSaver(ModelSaverBase):
 
     def _save(self, step, model):
         model_state_dict = model.state_dict()
-        model_state_dict = {k: v for k, v in model_state_dict.items()
-                            if 'generator' not in k}
+        model_state_dict = {k: v for k, v in model_state_dict.items()}
         # generator_state_dict = model.generator.state_dict()
         # generators_state_dicts = {k: v.state_dict() for k, v in model.generators.items()}
 

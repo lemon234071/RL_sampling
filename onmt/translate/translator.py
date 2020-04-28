@@ -136,6 +136,7 @@ class Translator(object):
             logger=None,
             sample_method="greedy",
             tag_mask_path="",
+            mask_decode=False,
             mask_attn=False,
             seed=-1):
         self.model = model
@@ -196,6 +197,7 @@ class Translator(object):
         self._filter_pred = None
 
         self.sample_method = sample_method
+        self.mask_decode = mask_decode
         if tag_mask_path:
             self.tag_mask = load_json(tag_mask_path)
             for k in self.tag_mask:
@@ -276,6 +278,7 @@ class Translator(object):
             logger=logger,
             sample_method=opt.sample_method,
             tag_mask_path=opt.tag_mask,
+            mask_decode=opt.mask_decode,
             mask_attn=model_opt.mask_attn,
             seed=opt.seed)
 
@@ -684,19 +687,31 @@ class Translator(object):
                 # dist = torch.distributions.Multinomial(logits=tag_log_probs, total_count=1)
                 # tag_argmax = torch.argmax(dist.sample(), dim=1)
                 # tag_index = torch.multinomial(tag_log_probs, num_samples=1)
-                vocab_size = sum([v._modules["0"].out_features for k, v in
-                                  self.model.generators.items() if k != "tag"])
-                log_probs = torch.full([dec_out.squeeze(0).shape[0], vocab_size], -float('inf'),
-                                       dtype=torch.float, device=self._dev)
-                for k, gen in self.model.generators.items():
-                    if k == "tag":
-                        continue
-                    indices = tag_argmax.eq(self.tag_vocab[k])
-                    if indices.any():
-                        k_output = dec_out.squeeze(0)[indices]
-                        k_logits = gen(k_output)
-                        mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
-                        log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
+                if "high" in self.model.generators:
+                    vocab_size = sum([v._modules["0"].out_features for k, v in
+                                      self.model.generators.items() if k != "tag"])
+                    log_probs = torch.full([dec_out.squeeze(0).shape[0], vocab_size], -float('inf'),
+                                           dtype=torch.float, device=self._dev)
+                    for k, gen in self.model.generators.items():
+                        if k == "tag":
+                            continue
+                        indices = tag_argmax.eq(self.tag_vocab[k])
+                        if indices.any():
+                            k_output = dec_out.squeeze(0)[indices]
+                            k_logits = gen(k_output)
+                            mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                            log_probs.masked_scatter_(mask.bool(), k_logits.log_softmax(dim=-1))
+                else:
+                    logits = self.model.generators["generator"](dec_out.squeeze(0))
+                    if self.mask_decode:
+                        high_num = self.tag_mask["high"].sum().long().item()
+                        high_indices = tag_argmax.eq(self.tag_vocab["high"])
+                        low_indices = tag_argmax.eq(self.tag_vocab["low"])
+                        # logits[high_indices, high_num:] = -float("inf")
+                        logits[low_indices, :high_num] = -float("inf")
+                        logits[high_indices] /= 0.4
+                        logits[low_indices] /= 1.4
+                    log_probs = torch.log_softmax(logits, dim=-1)
             else:
                 logits = self.model.generators["generator"](dec_out.squeeze(0))
                 log_probs = torch.log_softmax(logits, dim=-1)

@@ -990,24 +990,37 @@ class Translator(object):
             tag_argmax = tag_log_probs.max(1)[1]
         else:
             tag_log_probs = None
-
-        log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
-                               dtype=torch.float, device=self._dev)
         pass_indices = {}
-        for k, gen in self.model.generators.items():
-            if k == "tag":
-                continue
-            indices = tag_argmax.eq(self.tag_vocab[k])
-            pass_indices[k] = indices
-            if indices.any():
-                k_output = dec_out.squeeze(0)[indices]
-                k_logits = gen(k_output)
-                if learned_t is not None:
-                    # k_logits = get_topp(k_logits)
-                    k_logits /= learned_t[k][indices]
-                k_probs = torch.log_softmax(k_logits, dim=-1)
-                mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
-                log_probs.masked_scatter_(mask.bool(), k_probs)
+        if "high" in self.model.generators:
+            log_probs = torch.full([dec_out.squeeze(0).shape[0], 50004], -float('inf'),
+                                   dtype=torch.float, device=self._dev)
+            for k, gen in self.model.generators.items():
+                if k == "tag":
+                    continue
+                indices = tag_argmax.eq(self.tag_vocab[k])
+                pass_indices[k] = indices
+                if indices.any():
+                    k_output = dec_out.squeeze(0)[indices]
+                    k_logits = gen(k_output)
+                    if learned_t is not None:
+                        # k_logits = get_topp(k_logits)
+                        k_logits /= learned_t[k][indices]
+                    k_probs = torch.log_softmax(k_logits, dim=-1)
+                    mask = indices.float().unsqueeze(-1).mm(self.tag_mask[k])
+                    log_probs.masked_scatter_(mask.bool(), k_probs)
+        else:
+            logits = self.model.generators["generator"](dec_out.squeeze(0))
+            high_num = self.tag_mask["high"].sum().long().item()
+            high_indices = tag_argmax.eq(self.tag_vocab["high"])
+            low_indices = tag_argmax.eq(self.tag_vocab["low"])
+            pass_indices["high"] = high_indices
+            pass_indices["low"] = low_indices
+            logits[high_indices, high_num:] = -float("inf")
+            logits[low_indices, :high_num] = -float("inf")
+            if learned_t is not None:
+                logits[high_indices] /= learned_t["high"][high_indices]
+                logits[low_indices] /= learned_t["low"][low_indices]
+            log_probs = torch.log_softmax(logits, dim=-1)
         # yida translate
         return log_probs, attn, tag_log_probs, pass_indices
 
