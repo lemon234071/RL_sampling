@@ -162,7 +162,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
     #     nn.Dropout()
     # )
     input_size = model_opt.dec_rnn_size if model_opt.rl_step else model_opt.enc_rnn_size
-    output_size = 54 if model_opt.sample_method == "topk" else 20
+    output_size = 54 if model_opt.sample_method == "topk" else 15
 
     generators = {}
     for i, kv in enumerate(model_opt.generators.split(",")):

@@ -572,7 +572,7 @@ class Translator(object):
         loss_t = torch.tensor([0] * self.samples_n, dtype=torch.float, device=self._dev)
         learned_t = {}
         for k, logits_t in log_probs.items():
-            learned_t[k] = self.tid2t(ts_ids[k])
+            learned_t[k] = self.tid2t(ts_ids[k], k)
             tids = torch.stack(ts_ids[k], -1)
             # k_topk_ids = torch.cat(k_topk_ids, 0)
             k_logits_t = torch.stack([logits_t] * self.samples_n, -1)
@@ -607,7 +607,7 @@ class Translator(object):
         argmax_t = {}
         for k, logits_t in log_probs.items():
             _, topk_ids = logits_t.topk(1, dim=-1)
-            argmax_t[k] = self.tid2t([topk_ids])[0]
+            argmax_t[k] = self.tid2t([topk_ids], k)[0]
         with torch.no_grad():
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
@@ -648,10 +648,12 @@ class Translator(object):
         reward = metric_dict["bleu"] * 60 + metric_dict["dist"]
         return reward
 
-    def tid2t(self, t_ids):
+    def tid2t(self, t_ids, k):
         # return t_ids.float() + 0.001
-        t = (torch.stack(t_ids, 0).float() + 1) / 10
-        return t
+        t = (torch.stack(t_ids, 0).float() + 1)
+        if k == "low":
+            t += 5
+        return t / 10
 
     def tensor2ids(self, batch_data):
         batch = batch_data["batch"]
@@ -692,7 +694,7 @@ class Translator(object):
                     for k, logits_t in log_probs.items():
                         dist = torch.distributions.Multinomial(logits=logits_t, total_count=1)
                         k_topk_ids = torch.argmax(dist.sample(), dim=1, keepdim=True)
-                        learned_t[k] = self.tid2t([k_topk_ids])[0]
+                        learned_t[k] = self.tid2t([k_topk_ids], k)[0]
                         loss_t += self.criterion(logits_t, k_topk_ids.view(-1)).mean()
 
                     batch_data = self.translate_batch(
@@ -712,7 +714,7 @@ class Translator(object):
                 learned_t_arg = {}
                 for k, logits_t in log_probs.items():
                     _, topk_ids = logits_t.topk(1, dim=-1)
-                    learned_t_arg[k] = self.tid2t([topk_ids])[0]
+                    learned_t_arg[k] = self.tid2t([topk_ids], k)[0]
                     # loss_t += self.criterion(logits_t, topk_ids.view(-1))
 
                 self.model.decoder.init_state(src, memory_bank, enc_states)
