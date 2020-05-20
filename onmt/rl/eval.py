@@ -19,7 +19,7 @@ def cal_reward(preds, golden):
 def get_metric_tokens(infer, golden, bl=False):
     nltk_bleu = []
     chencherry = SmoothingFunction()
-    nltk_bleu.append(corpus_bleu(golden, infer, smoothing_function=chencherry.method1))
+    nltk_bleu.append(corpus_bleu(golden, infer, weights=[0.5, 0.5], smoothing_function=chencherry.method1))
     bleu = round(nltk_bleu[0], 7)
     if bl:
         infer = [x[0] for x in golden]

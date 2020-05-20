@@ -620,9 +620,11 @@ class Translator(object):
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # reward_bl = reward_mean
-        reward_bl = reward_argmax
-        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
-            [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
+        # reward_bl = reward_argmax
+        # reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
+        #     [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
+        reward = (torch.tensor(k_reward_qs, device=self._dev) - min(k_reward_qs)) \
+                 / (max(k_reward_qs) - min(k_reward_qs) + 1e-8)
         loss = reward * loss_t
 
         # sta
@@ -636,16 +638,16 @@ class Translator(object):
             self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/bleu",
-                                    {"argmax": metrices["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
+                                    {"argmax": metrices_bl["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/dist",
-                                    {"argmax": metrices["dist"], "mean": sum(k_dist) / len(k_dist)},
+                                    {"argmax": metrices_bl["dist"], "mean": sum(k_dist) / len(k_dist)},
                                     self.optim.training_step)
             self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
 
     def _compute_reward(self, metric_dict):
-        reward = metric_dict["bleu"] * 60 + metric_dict["dist"]
+        reward = metric_dict["bleu"] + metric_dict["dist"]
         return reward
 
     def tid2t(self, t_ids, k):
@@ -732,6 +734,9 @@ class Translator(object):
                     arg_prediction += batch_sents_arg
                 step += 1
         if infer:
+            for k, v in t_arg_all.items():
+                v = torch.cat(v)
+                print("     arg t {}:".format(k), v.mean(), "std:", v.std(), self.optim.training_step)
             return arg_prediction
         # diff unk
         metirc_argmax = get_metric_tokens(arg_prediction, golden)
@@ -868,7 +873,7 @@ class Translator(object):
             )
 
             # yida tranlate
-            random_sampler.advance(log_probs, attn, pos_log_probs, sta)
+            random_sampler.advance(log_probs, attn, pos_log_probs, sta, pass_indices)
 
             # for k, v in pass_indices.items():
             #     k_left = random_sampler.num_topp_left[v].float()
@@ -990,6 +995,10 @@ class Translator(object):
         if "tag" in self.model.generators:
             tag_log_probs = self.model.generators["tag"](tag_outputs.squeeze(0))
             tag_argmax = tag_log_probs.max(1)[1]
+            # tag_logits = self.model.generators["tag"][0](tag_outputs.squeeze(0))
+            # tag_log_probs = (tag_logits/0.5).log_softmax(dim=-1)
+            # dist = torch.distributions.Multinomial(logits=tag_log_probs, total_count=1)
+            # tag_argmax = torch.argmax(dist.sample(), dim=1)
         else:
             tag_log_probs = None
         pass_indices = {}
@@ -1017,11 +1026,13 @@ class Translator(object):
             low_indices = tag_argmax.eq(self.tag_vocab["low"])
             pass_indices["high"] = high_indices
             pass_indices["low"] = low_indices
-            # logits[high_indices, high_num:] = -float("inf")
+            logits[high_indices, high_num:] = -float("inf")
             logits[low_indices, :high_num] = -float("inf")
             if learned_t is not None:
                 logits[high_indices] /= learned_t["high"][high_indices]
                 logits[low_indices] /= learned_t["low"][low_indices]
+                # logits[high_indices] /= 0.5174
+                # logits[low_indices] /= 1.9034
             log_probs = torch.log_softmax(logits, dim=-1)
         # yida translate
         return log_probs, attn, tag_log_probs, pass_indices

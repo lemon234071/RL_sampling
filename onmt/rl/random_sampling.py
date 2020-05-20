@@ -4,7 +4,7 @@ from onmt.translate.decode_strategy import DecodeStrategy
 
 
 # yida translate
-def get_topp(logits, top_p):
+def get_topp(logits, pass_indices, top_p=0.9):
     probs = logits.exp()
     # Compute cumulative probabilities of sorted tokens
     sorted_probs, sorted_indices = torch.sort(probs, descending=True)
@@ -33,146 +33,14 @@ def get_topp(logits, top_p):
     return next_logprobs, next_tokens, num_topp_left
 
 
-def entropy_guide(pos_entropy):
-    max_h = pos_entropy.max().clone()
-    min_h = pos_entropy.min().clone()
-
-    # for i in range(pos_entropy.shape[0]):
-    #     logits[i] = logits[i] / (0.7 * (pos_entropy[i]) / (max_h - min_h))
-
-    return 0.7 * pos_entropy / (max_h - min_h)
-
-
-def pos_guide(logits, pos_logits, cross=True):
-    import json
-    with open("E:/git/coai_project/ost/tool_data/vocab_pos_dict.json", "r", encoding="utf-8") as f:
-        vocab_pos = json.load(f)
-    vocab_pos = list(vocab_pos.values())
-    _, pos_saved_indices = get_topp(pos_logits, top_p=0.4)  # bs*pos_size
-    pos_vocab_mask = torch.nn.functional.one_hot(torch.tensor(vocab_pos).cuda()).t()  # pos_size*vocab_size
-    logits_mask = pos_saved_indices.mm(pos_vocab_mask.float())  # bs*vocab_size
-    if cross:
-        _, topp_indices = get_topp(logits, top_p=0.9)
-        mask = logits_mask * topp_indices
-
-    else:
-        mask = logits_mask
-        # for i in range(logits.shape[0]):
-        #     logits[i][logits_mask[i].byte()] = logits[i][logits_mask[i].byte()] * 0.5
-    logits.masked_fill_(~mask.bool(), -10000)
-    logits /= 0.7
-    return logits
-
-
-def freq_guide(logits, tag_logits, mask=True):
-    # topk_tag_scores, topk_tag_ids = tag_logits.topk(1, dim=-1)
-    # high = topk_tag_ids.eq(4)
-    # low = topk_tag_ids.eq(5)
-    # numerator = high.float() * learned_t + (~high).float() * 1.1
-    # logits /= numerator
-    # if mask:
-    #     high_mask = high.squeeze()
-    #     low_mask = low.squeeze()
-    #     index = int(0.003 * (logits.shape[-1] - 4)) + 4
-    #     logits[high_mask, index:] = -10000
-    #     logits[low_mask, : index] = -10000
-    # if False:
-    #     _, topp_indices = get_topp(logits_backup, top_p=0.9999)
-    #     logits.masked_fill_(~topp_indices.bool(), -float('Inf'))
-    return logits
-
-
-def freq_guide_stopwords(logits, pos_logits, mask=True):
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
-    stop_words = topk_pos_ids.eq(4)
-    high = topk_pos_ids.eq(5)
-    low = topk_pos_ids.eq(6)
-    four = topk_pos_ids.lt(4)
-    # low * 0.7 affected eos prob makes seq longer
-    numerator = stop_words.float() * 0.01 + high.float() * 0.01 + low.float() * 0.7 + four * 0.7
-    logits /= numerator
-    if mask:
-        import json
-        with open("E:/git/coai_project/ost/tool_data/stof.json", "r", encoding="utf-8") as f:
-            stof = json.load(f)
-        stof = torch.tensor([x for x in stof.values()]).cuda()
-
-        stopwords_mask = stof.eq(4)
-        stopwords_mask[:4] = True
-        high_mask = stof.eq(5)
-        high_mask[:4] = True
-        low_mask = stof.eq(6)
-        low_mask[:4] = True
-
-        # logits[stop_words.squeeze(), ~stopwords_mask] = -float('Inf')
-        # logits[high.squeeze(), ~high_mask] = -float('Inf')
-        # logits[low.squeeze(), ~low_mask] = -float('Inf')
-        for i in range(logits.shape[0]):
-            if stop_words[i][0]:
-                logits[i, ~stopwords_mask] = -float('Inf')
-            elif high[i][0]:
-                logits[i, ~high_mask] = -float('Inf')
-            else:
-                logits[i, ~low_mask] = -float('Inf')
-
-        # mask_stop = stop_words.float().mm((~stopwords_mask).float().reshape(1, -1))
-        # logits = logits.masked_fill_(mask_stop.bool(), -float('Inf'))
-        # mask_high = high.float().mm((~high_mask).float().reshape(1, -1))
-        # logits = logits.masked_fill_(mask_high.bool(), -float('Inf'))
-        # mask_low = low.float().mm((~low_mask).float().reshape(1, -1))
-        # logits = logits.masked_fill_(mask_low.bool(), -float('Inf'))
-    return logits
-
-
-def topk_guide(logits, pos_logits, learned_k):
-    topk_pos_scores, topk_pos_ids = pos_logits.topk(1, dim=-1)
-    # if pos_logits.shape[0]< 2:
-    #     print(2)
-    high = topk_pos_ids.eq(4)
-    numerator = high.float() + (~high).float() * 0.1
-    logits /= numerator
-
-    high_mask = high.view(-1)
-    index = int(0.001 * (logits.shape[-1] - 4))
-    assert len(logits[high_mask, 4 + index:].shape) == 2
-    assert len(logits[~high_mask, 4:4 + index].shape) == 2
-    logits[high_mask, 4 + index:] = -10000
-    logits[~high_mask, 4:4 + index] = -10000
-
-    # speed topk
-    if high_mask.any():
-        top_values, sorted_indices = torch.sort(logits[high_mask, :4 + index], dim=-1, descending=True)
-        kth_best = top_values.gather(-1, (learned_k[high_mask].long() - 1))
-        index_lt = logits[high_mask, :4 + index].lt(kth_best)
-        logits[high_mask, :4 + index] = logits[high_mask, :4 + index].masked_fill(index_lt, -10000)
-
-    # for k in learned_k.unique(sorted=False):
-    #     index_k = learned_k.eq(k)
-    #     index_kh = (index_k & high).view(-1)
-    #     if not index_kh.any():
-    #         continue
-    #     sub_logits = logits[index_kh, :5 + index]
-    #     top_values, top_indices = torch.topk(sub_logits, k.int().item(), dim=-1)
-    #     kth_best = top_values[:, -1:]
-    #     index_lt = logits[index_kh, :].lt(kth_best)
-    #     logits[index_kh] = logits[index_kh].masked_fill(index_lt, -10000)
-
-    # for i, k in enumerate(learned_k):
-    #     if high[i]:
-    #         top_values, top_indices = torch.topk(logits[i, :5 + index], k.int().item(), dim=-1)
-    #         kth_best = top_values[-1]
-    #         ignore = torch.lt(logits[i], kth_best)
-    #         logits[i, ignore] = -10000
-    return logits
-
-
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, sample_method):
+def sample_with_dynamic_temperature(logits, pos_logits, sample_method, pass_indices):
     num_topp_left = None
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
     elif sample_method == "topp":
-        topk_scores, topk_ids, num_topp_left = get_topp(logits, top_p=0.9)
+        topk_scores, topk_ids, num_topp_left = get_topp(logits, pass_indices)
+
     else:
         if sample_method == "random":
             logits = logits
@@ -306,7 +174,7 @@ class RandomSampling(DecodeStrategy):
         self.tag_alive_src = tag_src
 
     # yida translate
-    def advance(self, log_probs, attn, pos_log_probs, sta):
+    def advance(self, log_probs, attn, pos_log_probs, sta, pass_indices):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -331,7 +199,7 @@ class RandomSampling(DecodeStrategy):
 
         # yida translate
         topk_ids, self.topk_scores, num_topp_left = \
-            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method)
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method, pass_indices)
 
         self.is_finished = topk_ids.eq(self.eos)
 

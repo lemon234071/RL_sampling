@@ -56,6 +56,8 @@ def build_loss_compute(model, fields, opt, train=True):
             )
         else:
             criterions[k] = criterion
+            if "tag" in k:
+                criterions[k] = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
         criterions[k].to(device)
 
     # if the loss function operates on vectors of raw logits instead of
@@ -327,6 +329,11 @@ class NMTLossCompute(LossComputeBase):
             tag_bottled_output = self._bottle(tag_output)
             tag_scores = self.generators["tag"](tag_bottled_output)
             tag_gtruth = tag_target.view(-1)
+
+            # tag_low_mask = tag_gtruth.eq(4)
+            # tag_loss = self.criterions["tag"](tag_scores, tag_gtruth) * 1 / 3
+            # tag_loss[tag_low_mask] = tag_loss[tag_low_mask] * 2
+            # loss_dict["tag_loss"] = tag_loss.sum()
             loss_dict["tag_loss"] = self.criterions["tag"](tag_scores, tag_gtruth)
             # sta
             tag_pred_indices = tag_scores.max(1)[1]
