@@ -763,6 +763,8 @@ def translate_opts(parser):
                    "model faster and smaller")
 
     # yida sampling
+    group.add('--reward_alpha', '-reward_alpha', type=float, default=1.0,
+              help="Alpha for bleu in reward")
     group.add('--mask_decode', '-mask_decode', action='store_true', help="mask_decode.")
     group.add('--tag_mask', '-tag_mask', default="", type=str,
               help="tag_mask path.")

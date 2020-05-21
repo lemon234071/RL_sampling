@@ -113,7 +113,7 @@ def sample_with_temperature(logits, sampling_temp, keep_topk):
     return topk_ids, topk_scores
 
 
-class RandomSampling(DecodeStrategy):
+class BeamSampling(DecodeStrategy):
     """Select next tokens randomly from the top k possible next tokens.
 
     The ``scores`` attribute's lists are the score, after applying temperature,
@@ -146,7 +146,7 @@ class RandomSampling(DecodeStrategy):
                  memory_length,
                  # yida translate
                  tag_gen, vocab_pos, learned_t, sample_method, tag_src, beam_size):
-        super(RandomSampling, self).__init__(
+        super(BeamSampling, self).__init__(
             pad, bos, eos, batch_size, device, beam_size,
             min_length, block_ngram_repeat, exclusion_tokens,
             return_attention, max_length)
@@ -155,9 +155,14 @@ class RandomSampling(DecodeStrategy):
         self.topk_scores = None
         self.memory_length = memory_length
         self.batch_size = batch_size
-        self.select_indices = torch.arange(self.batch_size,
+        self.beam_size = beam_size
+        self.predictions = [[] for _ in range(batch_size * beam_size)]
+        self.scores = [[] for _ in range(batch_size * beam_size)]
+        self.attention = [[] for _ in range(batch_size * beam_size)]
+        self.hypotheses = [[] for _ in range(batch_size)]
+        self.select_indices = torch.arange(self.batch_size * self.beam_size,
                                            dtype=torch.long, device=device)
-        self.original_batch_idx = torch.arange(self.batch_size,
+        self.original_batch_idx = torch.arange(self.batch_size * self.beam_size,
                                                dtype=torch.long, device=device)
         # yida translate
         self.learned_t = {k: v.clone() for k, v in learned_t.items()} if learned_t is not None else None
@@ -214,6 +219,23 @@ class RandomSampling(DecodeStrategy):
 
     def update_finished(self):
         """Finalize scores and predictions."""
+        # is_finished = self.is_finished.view(self.batch_size, self.beam_size)
+        # _B_old = self.topk_scores // self.beam_size
+        # step = self.alive_seq.shape[-1]
+        # predictions = self.alive_seq.view(_B_old, self.beam_size, step)
+        # attention = (
+        #     self.alive_attn.view(
+        #         step - 1, _B_old, self.beam_size, self.alive_attn.size(-1))
+        #     if self.alive_attn is not None else None)
+        # for i in range(is_finished.size(0)):
+        #     b = self.original_batch_idx[i]
+        #     finished_hyp = is_finished[i].nonzero().view(-1)
+        #     for j in finished_hyp:
+        #         self.hypotheses[b].append((
+        #             self.topk_scores[i, j],
+        #             predictions[i, j, 1:],  # Ignore start_token.
+        #             attention[:, i, j, :self._memory_lengths[i]]
+        #             if attention is not None else None))
         # shape: (sum(~ self.is_finished), 1)
         finished_batches = self.is_finished.view(-1).nonzero()
         for b in finished_batches.view(-1):

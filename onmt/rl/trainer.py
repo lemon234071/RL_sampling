@@ -19,7 +19,8 @@ import onmt.rl.beam
 # yida RL translate
 from onmt.rl.eval import get_metric_tokens
 from onmt.rl.random_sampling import RandomSampling
-from onmt.utils.misc import set_random_seed
+from onmt.rl.beam_sampling import BeamSampling
+from onmt.utils.misc import set_random_seed, tile
 from utils import *
 
 
@@ -169,6 +170,7 @@ class Translator(object):
             valid_steps=30,
             save_checkpoint_steps=100,
             random_steps=10000,
+            reward_alpha=1,
             seed=-1):
         self.model = model
         self.fields = fields
@@ -238,6 +240,7 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
+        self.reward_alpha = reward_alpha
         self.mask_attn = mask_attn
         self.sta = sta
         self.epochs = 1 if sta else epochs
@@ -332,6 +335,7 @@ class Translator(object):
             tag_mask_path=opt.tag_mask,
             mask_attn=model_opt.mask_attn,
             sta=opt.statistic,
+            reward_alpha=opt.reward_alpha,
             #
             seed=opt.seed)
 
@@ -505,7 +509,7 @@ class Translator(object):
             for batch in train_iter:
                 step = self.optim.training_step
 
-                if step % self.valid_steps == 0 or step == 1:
+                if step % self.valid_steps == 0:  # or step == 1:
                     self.validate(valid_iter, valid_data, valid_xlation_builder)
 
                 self._gradient_accumulation(batch, train_data, train_xlation_builder)
@@ -592,13 +596,15 @@ class Translator(object):
                 {k: v[i] for k, v in learned_t.items()}, sample_method=self.samples_method
             )
             pred_ids, gt_ids = self.tensor2ids(batch_data)
+            pred_ids = [pred_ids[i:i + self.beam_size]
+                        for i in range(0, len(pred_ids), self.beam_size)]
             metrices = get_metric_tokens(pred_ids, gt_ids)
 
             # # # translate, so slow
             # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
             # # cal rewards
             # reward_dict = cal_reward(batch_sents, golden_truth)
-            reward_sample = self._compute_reward(metrices)
+            reward_sample = self._compute_reward(metrices, self.reward_alpha)
             k_reward_qs.append(reward_sample)
             k_bleu.append(metrices["bleu"])
             k_dist.append(metrices["dist"])
@@ -614,6 +620,8 @@ class Translator(object):
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
             argmax_t, sample_method=self.samples_method)  # "greedy"
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
+        arg_pred_ids = [arg_pred_ids[i:i + self.beam_size]
+                        for i in range(0, len(arg_pred_ids), self.beam_size)]
         metrices_arg = get_metric_tokens(arg_pred_ids, arg_gt_ids)
         reward_argmax = self._compute_reward(metrices_arg)
 
@@ -645,8 +653,8 @@ class Translator(object):
             self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
 
-    def _compute_reward(self, metric_dict):
-        reward = metric_dict["bleu"] + metric_dict["dist"]
+    def _compute_reward(self, metric_dict, alpha=1):
+        reward = metric_dict["bleu"] * alpha + metric_dict["dist"]
         return reward
 
     def tid2t(self, t_ids, k):
@@ -666,7 +674,9 @@ class Translator(object):
             predictions.append([str(x) for x in seq])
         # predictions = [[str(x) for x in instance[0].tolist()] if for instance in batch_data["predictions"]]
         mask = batch.tgt.T.ne(self._tgt_pad_idx)
-        gt_tokens = [[[str(x) for x in batch.tgt.T[0, i][mask[0, i]][1:-1].tolist()]] for i in range(batch.batch_size)]
+        gt_tokens = [[[str(x)
+                       for x in batch.tgt.T[0, i][mask[0, i]][1:-1].tolist()]]
+                     for i in range(batch.batch_size)]
         return predictions, gt_tokens
 
     def validate(self, valid_iter, data, xlation_builder, infer=False, attn_debug=False):
@@ -678,6 +688,8 @@ class Translator(object):
         t_all = collections.defaultdict(list)
         t_arg_all = collections.defaultdict(list)
 
+        beam_size = self.beam_size
+        self.beam_size = 1
         self.rl_model.eval()
         with torch.no_grad():
             for batch in valid_iter:
@@ -738,8 +750,8 @@ class Translator(object):
                 print("     arg t {}:".format(k), v.mean(), "std:", v.std(), self.optim.training_step)
             return arg_prediction
         # diff unk
-        metirc_argmax = get_metric_tokens(arg_prediction, golden)
-        metirc_sample = get_metric_tokens(all_predictions, golden)
+        metirc_argmax = get_metric_tokens(arg_prediction, golden, eval=True)
+        metirc_sample = get_metric_tokens(all_predictions, golden, eval=True)
         # metirc_argmax = cal_reward(arg_prediction, golden)
         # metirc_sample = cal_reward(all_predictions, golden)
         reward = self._compute_reward(metirc_sample)
@@ -767,6 +779,7 @@ class Translator(object):
                 self.optim.training_step)
             print("     arg t {}:".format(k), v.mean(), "std:", v.std(), self.optim.training_step)
         print("valid loss:", loss_total / step)
+        self.beam_size = beam_size
         self.rl_model.train()
 
     def ids2sents(
@@ -844,7 +857,142 @@ class Translator(object):
             self._exclusion_idxs, return_attention, self.max_length,
             sampling_temp, keep_topk, memory_lengths,
             # yida translate
-            None, vocab_pos, learned_t, sample_method, tag_src)
+            None, vocab_pos, learned_t, sample_method, tag_src, self.beam_size)  # beam_size
+
+        for step in range(max_length):
+            # Shape: (1, B, 1)
+            decoder_input = random_sampler.alive_seq[:, -1].view(1, -1, 1)
+            tag_decoder_src = random_sampler.tag_alive_src \
+                if self.model.mask_attn else None
+            tag_decoder_in = random_sampler.pos_alive_seq[:, -1].view(1, -1, 1) \
+                if "tag" in self.model.generators else None
+            t_in = random_sampler.learned_t
+
+            # yida translate
+            log_probs, attn, pos_log_probs, pass_indices = self._decode_and_generate(
+                decoder_input,
+                memory_bank,
+                # yida tranlate
+                tag_decoder_src,
+                tag_decoder_in,
+                t_in,
+                batch,
+                src_vocabs,
+                memory_lengths=memory_lengths,
+                src_map=src_map,
+                step=step,
+                batch_offset=random_sampler.select_indices
+            )
+
+            # yida tranlate
+            random_sampler.advance(log_probs, attn, pos_log_probs, sta, pass_indices)
+
+            # for k, v in pass_indices.items():
+            #     k_left = random_sampler.num_topp_left[v].float()
+            #     if k_left.shape[0] > 0:
+            #         temp_std = k_left.std() if k_left.shape[0] > 1 else 0
+            #         self.writer.add_scalars(
+            #             "{}_topp_left/position_{}".format(k, step),
+            #             {"mean": k_left.mean(),
+            #              "mean+std": k_left.mean() + temp_std,
+            #              "mean-std": k_left.mean() - temp_std},
+            #             self.optim.training_step)
+
+            any_batch_is_finished = random_sampler.is_finished.any()
+            if any_batch_is_finished:
+                random_sampler.update_finished()
+                if random_sampler.done:
+                    break
+
+            if any_batch_is_finished:
+                select_indices = random_sampler.select_indices
+
+                # Reorder states.
+                if isinstance(memory_bank, tuple):
+                    memory_bank = tuple(x.index_select(1, select_indices)
+                                        for x in memory_bank)
+                else:
+                    memory_bank = memory_bank.index_select(1, select_indices)
+
+                memory_lengths = memory_lengths.index_select(0, select_indices)
+
+                if src_map is not None:
+                    src_map = src_map.index_select(1, select_indices)
+
+                self.model.decoder.map_state(
+                    lambda state, dim: state.index_select(dim, select_indices))
+
+        results["scores"] = random_sampler.scores
+        results["predictions"] = random_sampler.predictions
+        results["attention"] = random_sampler.attention
+        # yida translate
+        # results["entropy"] = random_sampler.entropy
+        # if self.model.pos_generator is not None:
+        #     results["pos_predictions"] = random_sampler.pos_predictions
+        return results
+
+    def _translate_beam_sampling(
+            self,
+            batch,
+            src_vocabs,
+            max_length,
+            # yida RL translate
+            memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
+            #
+            min_length=0,
+            sampling_temp=1.0,
+            keep_topk=-1,
+            return_attention=False,
+            # yida RL translate
+            vocab_pos=None):
+        """Alternative to beam search. Do random sampling at each step."""
+
+        # TODO: support these blacklisted features.
+        assert self.block_ngram_repeat == 0
+
+        batch_size = batch.batch_size
+        beam_size = self.beam_size
+
+        # # Encoder forward.
+        # src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+        # self.model.decoder.init_state(src, memory_bank, enc_states)
+
+        use_src_map = self.copy_attn
+
+        results = {
+            "predictions": None,
+            "scores": None,
+            "attention": None,
+            "batch": batch,
+            "gold_score": self._gold_score(
+                batch, memory_bank, src_lengths, src_vocabs, use_src_map,
+                enc_states, batch_size, src)}
+
+        src_map = (tile(batch.src_map, beam_size, dim=1)
+                   if use_src_map else None)
+        self.model.decoder.map_state(
+            lambda state, dim: tile(state, beam_size, dim=dim))
+
+        if isinstance(memory_bank, tuple):
+            memory_bank = tuple(tile(x, beam_size, dim=1) for x in memory_bank)
+            mb_device = memory_bank[0].device
+        else:
+            memory_bank = tile(memory_bank, beam_size, dim=1)
+            mb_device = memory_bank.device
+        memory_lengths = tile(src_lengths, beam_size)
+        learned_t = {k: tile(v, beam_size) for k, v in learned_t.items()}
+
+        tag_src = None
+        if self.mask_attn:
+            tag_src, _ = batch.tag_src if isinstance(batch.tag_src, tuple) else (batch.tag_src, None)
+
+        random_sampler = BeamSampling(
+            self._tgt_pad_idx, self._tgt_bos_idx, self._tgt_eos_idx,
+            batch_size, mb_device, min_length, self.block_ngram_repeat,
+            self._exclusion_idxs, return_attention, self.max_length,
+            sampling_temp, keep_topk, memory_lengths,
+            # yida translate
+            None, vocab_pos, learned_t, sample_method, tag_src, self.beam_size)  # beam_size
 
         for step in range(max_length):
             # Shape: (1, B, 1)
@@ -920,20 +1068,34 @@ class Translator(object):
 
     def translate_batch(self, batch, src_vocabs, attn_debug,
                         # yida RL translate
-                        memory_bank, src_lengths, enc_states, src, learned_t, sta=False, sample_method="freq"):
+                        memory_bank, src_lengths, enc_states, src, learned_t,
+                        sta=False, sample_method="freq", eval=False):
         """Translate a batch of sentences."""
         with torch.no_grad():
-            return self._translate_random_sampling(
-                batch,
-                src_vocabs,
-                self.max_length,
-                # yida RL translate
-                memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
-                #
-                min_length=self.min_length,
-                sampling_temp=self.random_sampling_temp,
-                keep_topk=self.sample_from_topk,
-                return_attention=attn_debug or self.replace_unk)
+            if self.beam_size == 1:
+                return self._translate_random_sampling(
+                    batch,
+                    src_vocabs,
+                    self.max_length,
+                    # yida RL translate
+                    memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
+                    #
+                    min_length=self.min_length,
+                    sampling_temp=self.random_sampling_temp,
+                    keep_topk=self.sample_from_topk,
+                    return_attention=attn_debug or self.replace_unk)
+            else:
+                return self._translate_beam_sampling(
+                    batch,
+                    src_vocabs,
+                    self.max_length,
+                    # yida RL translate
+                    memory_bank, src_lengths, enc_states, src, learned_t, sta, sample_method,
+                    #
+                    min_length=self.min_length,
+                    sampling_temp=self.random_sampling_temp,
+                    keep_topk=self.sample_from_topk,
+                    return_attention=attn_debug or self.replace_unk)
 
     def _run_encoder(self, batch):
         src, src_lengths = batch.src if isinstance(batch.src, tuple) \

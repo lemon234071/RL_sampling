@@ -16,25 +16,26 @@ def cal_reward(preds, golden):
     return {"bleu": nltk_bleu[0], "dist": round(dist2, 6)}
 
 
-def get_metric_tokens(infer, golden, bl=False):
-    nltk_bleu = []
+def get_metric_tokens(infer, golden, bl=False, eval=False):
     chencherry = SmoothingFunction()
-    nltk_bleu.append(corpus_bleu(golden, infer, weights=[0.5, 0.5], smoothing_function=chencherry.method1))
-    bleu = round(nltk_bleu[0], 7)
-    if bl:
-        infer = [x[0] for x in golden]
-    dist1, dist2 = [round(x, 7) for x in eval_distinct(infer)]
-    # low_bleu = round(eval_bleu(golden, infer) * 100, 7)
-    low_bleu = 0
 
-    # a tempt
-    # gt_dist1, gt_dist2 = [round(x, 6) for x in eval_distinct([x[0] for x in golden])]
-    # diff_dist1 = abs(dist1 - gt_dist1)
-    # diff_dist2 = abs(dist2 - gt_dist2)
-    # , "diff_dist": diff_dist1 + diff_dist2
+    if eval:
+        chencherry = SmoothingFunction()
+        bleu = round(corpus_bleu(golden, infer, weights=[0.5, 0.5], smoothing_function=chencherry.method1), 7)
+        if bl:
+            infer = [x[0] for x in golden]
+        dist1, dist2 = [round(x, 7) for x in eval_distinct(infer)]
+        return {"bleu": bleu, "dist": dist2}
 
-    # reward = round(nltk_bleu[0] * 100, 6) - round(diff_dist1 + diff_dist2, 6)
-    return {"bleu": bleu, "dist": dist2, "low_bleu": low_bleu}
+    bleu = []
+    dist = []
+    for gt, hypts in zip(golden, infer):
+        dist.append(eval_distinct(hypts)[1])
+        sample_bleu = 0
+        for hypt in hypts:
+            sample_bleu += corpus_bleu([gt], [hypt], weights=[0.5, 0.5], smoothing_function=chencherry.method1)
+        bleu.append(sample_bleu)
+    return {"bleu": sum(bleu) / len(bleu), "dist": sum(dist) / len(dist), "bleu_batch": bleu, "dist_batch": dist}
 
 
 def eval_distinct(hyps_resp):
