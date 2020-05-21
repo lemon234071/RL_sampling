@@ -612,19 +612,18 @@ class Translator(object):
             self.model.decoder.init_state(src, memory_bank, enc_states)
         bl_batch_data = self.translate_batch(
             batch, data.src_vocabs, attn_debug, memory_bank, src_lengths, enc_states, src,
-            argmax_t, sample_method="greedy"
-        )
+            argmax_t, sample_method=self.samples_method)  # "greedy"
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
-        metrices_bl = get_metric_tokens(arg_pred_ids, arg_gt_ids)
-        reward_argmax = self._compute_reward(metrices_bl)
+        metrices_arg = get_metric_tokens(arg_pred_ids, arg_gt_ids)
+        reward_argmax = self._compute_reward(metrices_arg)
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # reward_bl = reward_mean
-        # reward_bl = reward_argmax
-        # reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
-        #     [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
-        reward = (torch.tensor(k_reward_qs, device=self._dev) - min(k_reward_qs)) \
-                 / (max(k_reward_qs) - min(k_reward_qs) + 1e-8)
+        reward_bl = reward_argmax
+        reward = (torch.tensor(k_reward_qs, device=self._dev) - reward_bl) / max(
+            [abs(x - reward_bl) + 1e-8 for x in k_reward_qs])
+        # reward = (torch.tensor(k_reward_qs, device=self._dev) - min(k_reward_qs)) \
+        #          / (max(k_reward_qs) - min(k_reward_qs) + 1e-8)
         loss = reward * loss_t
 
         # sta
@@ -638,10 +637,10 @@ class Translator(object):
             self.writer.add_scalars("train_reward/reward", {"argmax": reward_argmax, "mean": reward_mean},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/bleu",
-                                    {"argmax": metrices_bl["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
+                                    {"argmax": metrices_arg["bleu"], "mean": sum(k_bleu) / len(k_bleu)},
                                     self.optim.training_step)
             self.writer.add_scalars("train_reward/dist",
-                                    {"argmax": metrices_bl["dist"], "mean": sum(k_dist) / len(k_dist)},
+                                    {"argmax": metrices_arg["dist"], "mean": sum(k_dist) / len(k_dist)},
                                     self.optim.training_step)
             self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
@@ -653,8 +652,8 @@ class Translator(object):
     def tid2t(self, t_ids, k):
         # return t_ids.float() + 0.001
         t = (torch.stack(t_ids, 0).float() + 1)
-        if k == "low":
-            t += 5
+        # if k == "low":
+        #    t += 5
         return t / 10
 
     def tensor2ids(self, batch_data):
