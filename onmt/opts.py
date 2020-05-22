@@ -133,6 +133,8 @@ def model_opts(parser):
     # yida model
     group.add('--later_mask', '-later_mask', action='store_true',
               help="later_mask")
+    group.add('--reward_alpha', '-reward_alpha', type=float, default=1.0,
+              help="")
     group.add('--itoj', '-itoj', type=str, default="",
               help="Mapping vocab to sub-vocab")
     group.add('--t_gen', '-t_gen', action='store_true',
@@ -249,7 +251,7 @@ def preprocess_opts(parser):
     group.add('--max_shard_size', '-max_shard_size', type=int, default=0,
               help="""Deprecated use shard_size instead""")
 
-    group.add('--shard_size', '-shard_size', type=int, default=1000000,
+    group.add('--shard_size', '-shard_size', type=int, default=5000000,
               help="Divide src_corpus and tgt_corpus into "
                    "smaller multiple src_copus and tgt corpus files, then "
                    "build shards, each shard will have "
@@ -630,7 +632,7 @@ def translate_opts(parser):
               help='Source directory for image or audio files')
     group.add('--tgt', '-tgt',
               help='True target sequence (optional)')
-    group.add('--shard_size', '-shard_size', type=int, default=1000000,
+    group.add('--shard_size', '-shard_size', type=int, default=5000000,
               help="Divide src and tgt (if applicable) into "
                    "smaller multiple src and tgt files, then "
                    "build shards, each shard will have "

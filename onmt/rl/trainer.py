@@ -164,6 +164,7 @@ class Translator(object):
             tag_mask_path="",
             mask_attn=False,
             later_mask=False,
+            reward_alpha=1,
             epochs=4,
             samples_n=2,
             report_every=5,
@@ -240,6 +241,7 @@ class Translator(object):
 
         # for rl
         self.later_mask = later_mask
+        self.reward_alpha = reward_alpha
         self.mask_attn = mask_attn
         self.sta = sta
         self.epochs = 1 if sta else epochs
@@ -334,6 +336,7 @@ class Translator(object):
             tag_mask_path=opt.tag_mask,
             mask_attn=model_opt.mask_attn,
             later_mask=opt.later_mask,
+            reward_alpha=opt.reward_alpha,
             sta=opt.statistic,
             #
             seed=opt.seed)
@@ -601,7 +604,7 @@ class Translator(object):
             # batch_sents, golden_truth = self.ids2sents(batch_data, xlation_builder)
             # # cal rewards
             # reward_dict = cal_reward(batch_sents, golden_truth)
-            reward_sample = self._compute_reward(metrices)
+            reward_sample = self._compute_reward(metrices, self.reward_alpha)
             k_reward_qs.append(reward_sample)
             k_bleu.append(metrices["bleu"])
             k_dist.append(metrices["dist"])
@@ -618,7 +621,7 @@ class Translator(object):
             argmax_t, sample_method=self.samples_method)  # "greedy"
         arg_pred_ids, arg_gt_ids = self.tensor2ids(bl_batch_data)
         metrices_arg = get_metric_tokens(arg_pred_ids, arg_gt_ids)
-        reward_argmax = self._compute_reward(metrices_arg)
+        reward_argmax = self._compute_reward(metrices_arg, self.reward_alpha)
 
         reward_mean = sum(k_reward_qs) / len(k_reward_qs)
         # reward_bl = reward_mean
@@ -648,8 +651,8 @@ class Translator(object):
             self.writer.add_scalars("lr", {"lr": self.optim.learning_rate()}, self.optim.training_step)
         return loss
 
-    def _compute_reward(self, metric_dict):
-        reward = metric_dict["bleu"] + metric_dict["dist"]
+    def _compute_reward(self, metric_dict, alpha):
+        reward = metric_dict["bleu"] * alpha + metric_dict["dist"]
         return reward
 
     def tid2t(self, t_ids, k):
@@ -745,8 +748,8 @@ class Translator(object):
         metirc_sample = get_metric_tokens(all_predictions, golden)
         # metirc_argmax = cal_reward(arg_prediction, golden)
         # metirc_sample = cal_reward(all_predictions, golden)
-        reward = self._compute_reward(metirc_sample)
-        reward_arg = self._compute_reward(metirc_argmax)
+        reward = self._compute_reward(metirc_sample, self.reward_alpha)
+        reward_arg = self._compute_reward(metirc_argmax, self.reward_alpha)
         self.writer.add_scalars("valid_loss", {"loss": loss_total / step}, self.optim.training_step)
         self.writer.add_scalars("valid_reward/reward",
                                 {"reward_sample": reward, "reward_arg": reward_arg}, self.optim.training_step)
