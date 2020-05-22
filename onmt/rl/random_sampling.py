@@ -33,17 +33,46 @@ def get_topp(logits, pass_indices, top_p=0.9):
     return next_logprobs, next_tokens, num_topp_left
 
 
+def get_my_topp(logits, pass_indices, high_num, top_p=0.9):
+    probs = logits.exp()
+    # Compute cumulative probabilities of sorted tokens
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+    cumulative_probabilities = torch.cumsum(sorted_probs, dim=-1)
+
+    # Remove tokens with cumulative probability above the threshold
+    sorted_indices_to_remove = cumulative_probabilities > top_p
+    # Shift the indices to the right to keep also the first token above the threshold
+    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    sorted_indices_to_remove[..., 0] = 0
+
+    sorted_samp_probs = sorted_probs.clone()
+    sorted_samp_probs[sorted_indices_to_remove] = 0
+    ###
+    samp_probs = probs.clone()
+    samp_probs.scatter_(1, sorted_indices, sorted_samp_probs)
+    samp_logits = samp_probs.log()
+
+    if high_num is not None:
+        samp_logits[pass_indices["high"], high_num:] = -float("inf")
+        samp_logits[pass_indices["low"], :high_num] = -float("inf")
+
+    # testa = samp_probs.gt(0).sum(1)
+    # num_topp_left = sorted_samp_probs.gt(0).sum(1)
+    return samp_logits
+
+
 # yida translate
-def sample_with_dynamic_temperature(logits, pos_logits, sample_method, pass_indices):
+def sample_with_dynamic_temperature(logits, pos_logits, sample_method, pass_indices, high_num):
     num_topp_left = None
     if sample_method == "greedy":
         topk_scores, topk_ids = logits.topk(1, dim=-1)
-    elif sample_method == "topp":
+    elif high_num is None and sample_method == "topp":
         topk_scores, topk_ids, num_topp_left = get_topp(logits, pass_indices)
-
     else:
         if sample_method == "random":
             logits = logits
+        elif sample_method == "topp":
+            logits = get_my_topp(logits, pass_indices, high_num)
 
         # entropy
         # logits = pos_guide(logits, pos_logits)
@@ -174,7 +203,7 @@ class RandomSampling(DecodeStrategy):
         self.tag_alive_src = tag_src
 
     # yida translate
-    def advance(self, log_probs, attn, pos_log_probs, sta, pass_indices):
+    def advance(self, log_probs, attn, pos_log_probs, sta, pass_indices, high_num):
         """Select next tokens randomly from the top k possible next tokens.
 
         Args:
@@ -199,7 +228,7 @@ class RandomSampling(DecodeStrategy):
 
         # yida translate
         topk_ids, self.topk_scores, num_topp_left = \
-            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method, pass_indices)
+            sample_with_dynamic_temperature(log_probs, pos_log_probs, self.sample_method, pass_indices, high_num)
 
         self.is_finished = topk_ids.eq(self.eos)
 

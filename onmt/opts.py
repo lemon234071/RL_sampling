@@ -131,6 +131,8 @@ def model_opts(parser):
               help="Type of context gate to use. "
                    "Do not select for no context gate.")
     # yida model
+    group.add('--later_mask', '-later_mask', action='store_true',
+              help="later_mask")
     group.add('--itoj', '-itoj', type=str, default="",
               help="Mapping vocab to sub-vocab")
     group.add('--t_gen', '-t_gen', action='store_true',

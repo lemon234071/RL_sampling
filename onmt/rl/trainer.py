@@ -163,6 +163,7 @@ class Translator(object):
             sample_method="freq",
             tag_mask_path="",
             mask_attn=False,
+            later_mask=False,
             epochs=4,
             samples_n=2,
             report_every=5,
@@ -238,6 +239,7 @@ class Translator(object):
                 "log_probs": []}
 
         # for rl
+        self.later_mask = later_mask
         self.mask_attn = mask_attn
         self.sta = sta
         self.epochs = 1 if sta else epochs
@@ -331,6 +333,7 @@ class Translator(object):
             sample_method=opt.sample_method,
             tag_mask_path=opt.tag_mask,
             mask_attn=model_opt.mask_attn,
+            later_mask=opt.later_mask,
             sta=opt.statistic,
             #
             seed=opt.seed)
@@ -766,6 +769,7 @@ class Translator(object):
                 {"t_mean": v.mean(), "mean+stc": v.mean() + v.std(), "mean-stc": v.mean() - v.std()},
                 self.optim.training_step)
             print("     arg t {}:".format(k), v.mean(), "std:", v.std(), self.optim.training_step)
+        print("                    valid_bleu:", metirc_argmax["bleu"], "valid_dist:", metirc_argmax["dist"])
         print("valid loss:", loss_total / step)
         self.rl_model.train()
 
@@ -856,7 +860,7 @@ class Translator(object):
             t_in = random_sampler.learned_t
 
             # yida translate
-            log_probs, attn, pos_log_probs, pass_indices = self._decode_and_generate(
+            log_probs, attn, pos_log_probs, pass_indices, high_num = self._decode_and_generate(
                 decoder_input,
                 memory_bank,
                 # yida tranlate
@@ -872,7 +876,9 @@ class Translator(object):
             )
 
             # yida tranlate
-            random_sampler.advance(log_probs, attn, pos_log_probs, sta, pass_indices)
+            if not self.later_mask:
+                high_num = None
+            random_sampler.advance(log_probs, attn, pos_log_probs, sta, pass_indices, high_num)
 
             # for k, v in pass_indices.items():
             #     k_left = random_sampler.num_topp_left[v].float()
@@ -1025,8 +1031,9 @@ class Translator(object):
             low_indices = tag_argmax.eq(self.tag_vocab["low"])
             pass_indices["high"] = high_indices
             pass_indices["low"] = low_indices
-            logits[high_indices, high_num:] = -float("inf")
-            logits[low_indices, :high_num] = -float("inf")
+            if not self.later_mask:
+                logits[high_indices, high_num:] = -float("inf")
+                logits[low_indices, :high_num] = -float("inf")
             if learned_t is not None:
                 logits[high_indices] /= learned_t["high"][high_indices]
                 logits[low_indices] /= learned_t["low"][low_indices]
@@ -1034,7 +1041,7 @@ class Translator(object):
                 # logits[low_indices] /= 1.9034
             log_probs = torch.log_softmax(logits, dim=-1)
         # yida translate
-        return log_probs, attn, tag_log_probs, pass_indices
+        return log_probs, attn, tag_log_probs, pass_indices, high_num
 
     def _report_score(self, name, score_total, words_total):
         if words_total == 0:
